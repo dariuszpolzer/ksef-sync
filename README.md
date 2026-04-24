@@ -2,16 +2,19 @@
 
 Integracja z KSeF w Pythonie.
 
-Funkcje:
-- synchronizacja faktur z KSeF API
-- przetwarzanie batchy XML
-- generowanie podglądu faktur PDF
-- przygotowanie danych do JPK_V7
-- indeks HTML faktur
+## Funkcje
 
-Pipeline:
+* synchronizacja faktur z KSeF API
+* przetwarzanie batchy XML
+* generowanie podglądu faktur PDF
+* przygotowanie danych do JPK_V7
+* indeks HTML faktur
 
+## Pipeline
+
+```
 KSeF API → batch XML → PDF → manifest → JPK
+```
 
 ## Diagram działania
 
@@ -49,3 +52,46 @@ flowchart TD
     N --> R
     I --> R
 ```
+
+## Instalacja
+
+### Python
+
+```bash
+pip install -r requirements.txt
+```
+
+### Generator PDF KSeF (Node)
+
+```bash
+cd pdf_generator/ksef-pdf-generator
+npm install
+npm run build
+```
+
+## Uruchomienie
+
+Pobranie faktur z KSeF:
+
+```bash
+python main.py
+```
+
+Po wykonaniu pipeline powstają:
+
+```
+data/batches/
+ ├─ raw/
+ ├─ invoices/
+ ├─ pdf/
+ ├─ logs/
+ └─ manifest.json
+```
+
+## Wynik
+
+* XML faktur z KSeF
+* PDF podgląd faktur
+* manifest batch
+* dane do JPK_V7
+* HTML indeks faktur
