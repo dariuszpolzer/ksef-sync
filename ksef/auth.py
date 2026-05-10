@@ -7,9 +7,9 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 
-from config import BASE_URL, NIP, KSEF_TOKEN, PUBLIC_KEY_PATH, AUTH_POLL_INTERVAL
-from ksef.utils import save_json
+from config import AUTH_POLL_INTERVAL, BASE_URL, KSEF_TOKEN, NIP, PUBLIC_KEY_PATH
 from ksef.http_client import HttpClient
+from ksef.utils import save_json
 
 
 class KSeFAuthClient:
@@ -30,7 +30,7 @@ class KSeFAuthClient:
         return data
 
     def encrypt_token(self, token: str, timestamp_ms: int) -> str:
-        payload = f"{token}|{timestamp_ms}".encode("utf-8")
+        payload = f"{token}|{timestamp_ms}".encode()
         public_key = self.load_public_key()
 
         encrypted = public_key.encrypt(
@@ -47,11 +47,8 @@ class KSeFAuthClient:
         url = f"{BASE_URL}/auth/ksef-token"
         body = {
             "challenge": challenge,
-            "contextIdentifier": {
-                "type": "Nip",
-                "value": NIP
-            },
-            "encryptedToken": encrypted_token
+            "contextIdentifier": {"type": "Nip", "value": NIP},
+            "encryptedToken": encrypted_token,
         }
         response = self.http.request("POST", url, json_body=body)
         data = response.json()
@@ -60,9 +57,7 @@ class KSeFAuthClient:
 
     def get_auth_status(self, authentication_token: str, reference_number: str):
         url = f"{BASE_URL}/auth/{reference_number}"
-        headers = {
-            "Authorization": f"Bearer {authentication_token}"
-        }
+        headers = {"Authorization": f"Bearer {authentication_token}"}
         response = self.http.request("GET", url, headers=headers)
         return response.json()
 
@@ -88,9 +83,7 @@ class KSeFAuthClient:
 
     def redeem(self, authentication_token: str):
         url = f"{BASE_URL}/auth/token/redeem"
-        headers = {
-            "Authorization": f"Bearer {authentication_token}"
-        }
+        headers = {"Authorization": f"Bearer {authentication_token}"}
         response = self.http.request("POST", url, headers=headers)
         data = response.json()
         save_json(self.auth_dir / "04_redeem.json", data)

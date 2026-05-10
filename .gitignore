@@ -1,6 +1,29 @@
+```gitignore
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Environment
 .env
+
+# KSeF sensitive/runtime data
 keys/
+auth/
 batches/
+data/
 logs/
 exports/
-auth/
+
+# Build/cache
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+bandit_report.html
+
+# IDE
+.vscode/
+.idea/
+```

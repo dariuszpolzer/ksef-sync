@@ -1,9 +1,10 @@
 import base64
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from config import BASE_URL, EXPORT_POLL_INTERVAL, SYMMETRIC_KEY_CERT_PATH
-from ksef.utils import save_json
 from ksef.export_crypto import KSeFExportCrypto
+from ksef.utils import save_json
+
 
 class KSeFExportClient:
 
@@ -13,7 +14,7 @@ class KSeFExportClient:
         self.crypto = KSeFExportCrypto(SYMMETRIC_KEY_CERT_PATH)
 
     def iso_z(self, dt: datetime) -> str:
-        return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        return dt.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
     def start_export(
         self,
@@ -21,21 +22,19 @@ class KSeFExportClient:
         date_from: datetime,
         date_to: datetime,
         subject_type: str = "Subject2",
-        export_key: str = "export"
+        export_key: str = "export",
     ):
 
         enc = self.crypto.prepare_export_encryption()
 
         url = f"{BASE_URL}/invoices/exports"
 
-        headers = {
-            "Authorization": f"Bearer {access_token}"
-        }
+        headers = {"Authorization": f"Bearer {access_token}"}
 
         body = {
             "encryption": {
                 "encryptedSymmetricKey": enc["encryptedSymmetricKey"],
-                "initializationVector": enc["initializationVector"]
+                "initializationVector": enc["initializationVector"],
             },
             "filters": {
                 "subjectType": subject_type,
@@ -43,9 +42,9 @@ class KSeFExportClient:
                     "dateType": "PermanentStorage",
                     "from": self.iso_z(date_from),
                     "to": self.iso_z(date_to),
-                    "restrictToPermanentStorageHwmDate": True
-                }
-            }
+                    "restrictToPermanentStorageHwmDate": True,
+                },
+            },
         }
 
         response = self.http.request("POST", url, headers=headers, json_body=body)
@@ -59,13 +58,10 @@ class KSeFExportClient:
             "encryptedSymmetricKey": enc["encryptedSymmetricKey"],
             "initializationVector": enc["initializationVector"],
             "subjectType": subject_type,
-            "exportKey": export_key
+            "exportKey": export_key,
         }
 
-        save_json(
-            self.export_dir / f"01a_export_crypto_local_{export_key}.json",
-            local_crypto
-        )
+        save_json(self.export_dir / f"01a_export_crypto_local_{export_key}.json", local_crypto)
 
         return data
 
@@ -73,9 +69,7 @@ class KSeFExportClient:
 
         url = f"{BASE_URL}/invoices/exports/{reference_number}"
 
-        headers = {
-            "Authorization": f"Bearer {access_token}"
-        }
+        headers = {"Authorization": f"Bearer {access_token}"}
 
         response = self.http.request("GET", url, headers=headers)
         return response.json()
@@ -120,10 +114,6 @@ class KSeFExportClient:
             if not url:
                 continue
 
-            results.append({
-                "part_number": part.get("partNumber", idx),
-                "url": url,
-                "raw": part
-            })
+            results.append({"part_number": part.get("partNumber", idx), "url": url, "raw": part})
 
         return results

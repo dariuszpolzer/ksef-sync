@@ -1,17 +1,15 @@
 import json
 import shutil
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from datetime import datetime, timedelta, timezone
 
 import config
-
-from ksef.utils import ensure_dir, save_json
-from ksef.http_client import HttpClient
 from ksef.auth import KSeFAuthClient
-from ksef.export import KSeFExportClient
 from ksef.downloader import KSeFDownloader
+from ksef.export import KSeFExportClient
+from ksef.http_client import HttpClient
 from ksef.pdf_generator import generate_invoice_pdfs
-from ksef.build_index import build_batch_index
+from ksef.utils import ensure_dir, save_json
 
 STATE_FILE = config.DATA_DIR / "state.json"
 DEFAULT_DAYS_BACK = 7
@@ -19,11 +17,11 @@ OVERLAP_MINUTES = 5
 
 
 def utc_now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def dt_to_iso_z(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return dt.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def iso_z_to_dt(value: str) -> datetime:
@@ -38,10 +36,7 @@ def load_state():
 
 def save_state(state: dict):
     ensure_dir(STATE_FILE.parent)
-    STATE_FILE.write_text(
-        json.dumps(state, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
+    STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def determine_date_range():
@@ -96,12 +91,14 @@ def prepare_batch_for_jpk(
             target_path = invoices_dir / filename
             shutil.copy2(xml_path, target_path)
 
-            invoices.append({
-                "filename": filename,
-                "nr_ksef": nr_ksef,
-                "source_path": str(xml_path),
-                "target_path": str(target_path),
-            })
+            invoices.append(
+                {
+                    "filename": filename,
+                    "nr_ksef": nr_ksef,
+                    "source_path": str(xml_path),
+                    "target_path": str(target_path),
+                }
+            )
 
     invoices.sort(key=lambda x: x["filename"])
 
@@ -304,8 +301,7 @@ def main():
     state["last_batch_id"] = batch_id
     state["last_run_at"] = dt_to_iso_z(utc_now())
     state["last_exports"] = {
-        key: value["reference_number"]
-        for key, value in export_statuses.items()
+        key: value["reference_number"] for key, value in export_statuses.items()
     }
 
     save_state(state)

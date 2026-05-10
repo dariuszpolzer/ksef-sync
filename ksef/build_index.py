@@ -1,5 +1,5 @@
-from pathlib import Path
 import json
+from pathlib import Path
 
 
 def build_batch_index(batch_dir: Path):
@@ -12,7 +12,6 @@ def build_batch_index(batch_dir: Path):
     manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
 
     invoices = manifest.get("invoices", [])
-    pdf_info = manifest.get("pdf", {})
 
     html_rows = []
 

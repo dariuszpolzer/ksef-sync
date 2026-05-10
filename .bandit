@@ -1,0 +1,10 @@
+[bandit]
+recursive = True
+
+exclude =
+    outbound,
+    tools,
+    __pycache__,
+    validator/xsd
+
+skips = B101,B404,B603,B607,B110,B112

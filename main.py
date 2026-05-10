@@ -1,23 +1,29 @@
+import argparse
 import json
 import shutil
-import config
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from datetime import datetime, timedelta, timezone
-from ksef.utils import ensure_dir, save_json
-from ksef.http_client import HttpClient
+
+import config
 from ksef.auth import KSeFAuthClient
-from ksef.export import KSeFExportClient
-from ksef.downloader import KSeFDownloader
-from ksef.pdf_generator import generate_invoice_pdfs
 from ksef.build_index import build_batch_index
+from ksef.downloader import KSeFDownloader
+from ksef.export import KSeFExportClient
+from ksef.http_client import HttpClient
+from ksef.pdf_generator import generate_invoice_pdfs
+from ksef.utils import ensure_dir, save_json
+
+
 def print_menu():
     print("\nWybierz tryb:")
     print("1 - tylko uwierzytelnienie")
     print("2 - eksport za podany zakres dni")
     print("3 - pełny jednorazowy sync (auth -> export -> download -> decrypt -> unzip)")
     print("4 - wyjście")
-   # print("4 - uruchom sync_ksef_incremental.py")
-   # print("5 - wyjście")
+
+
+# print("4 - uruchom sync_ksef_incremental.py")
+# print("5 - wyjście")
 
 
 def run_auth_only():
@@ -42,7 +48,7 @@ def run_export_only(days_back: int):
     auth_result = auth_client.authenticate()
     access_token = auth_result["accessToken"]["token"]
 
-    date_to = datetime.now(timezone.utc)
+    date_to = datetime.now(UTC)
     date_from = date_to - timedelta(days=days_back)
 
     export_init = export_client.start_export(access_token, date_from, date_to)
@@ -61,6 +67,7 @@ def run_export_only(days_back: int):
     print(f"\nLiczba części paczki: {len(parts)}")
     for part in parts:
         print(f"Part {part['part_number']}: {part['url']}")
+
 
 def prepare_batch_for_jpk(
     batch_dir: Path,
@@ -93,12 +100,14 @@ def prepare_batch_for_jpk(
 
             nr_ksef = filename[:-4] if filename.lower().endswith(".xml") else filename
 
-            invoices.append({
-                "filename": filename,
-                "nr_ksef": nr_ksef,
-                "source_path": str(xml_path),
-                "target_path": str(target_path),
-            })
+            invoices.append(
+                {
+                    "filename": filename,
+                    "nr_ksef": nr_ksef,
+                    "source_path": str(xml_path),
+                    "target_path": str(target_path),
+                }
+            )
 
     invoices.sort(key=lambda x: x["filename"])
 
@@ -114,7 +123,7 @@ def prepare_batch_for_jpk(
         "batch": {
             "batch_id": batch_id,
             "source": "ksef_api_export",
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "date_from": date_from.isoformat(),
             "date_to": date_to.isoformat(),
             "invoice_count": len(invoices),
@@ -134,7 +143,8 @@ def prepare_batch_for_jpk(
 
     return manifest
 
-def run_full_sync(days_back: int):
+
+def run_full_sync(days_back: int, year: int | None = None, month: int | None = None):
     ensure_dir(config.DATA_DIR)
     ensure_dir(config.AUTH_DIR)
     ensure_dir(config.EXPORT_DIR)
@@ -150,10 +160,18 @@ def run_full_sync(days_back: int):
     access_token = auth_result["accessToken"]["token"]
     print("   OK")
 
-    date_to = datetime.now(timezone.utc)
-    date_from = date_to - timedelta(days=days_back)
+    if year and month:
+        date_from = datetime(year, month, 1, tzinfo=UTC)
 
-    batch_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        if month == 12:
+            date_to = datetime(year + 1, 1, 1, tzinfo=UTC)
+        else:
+            date_to = datetime(year, month + 1, 1, tzinfo=UTC)
+    else:
+        date_to = datetime.now(UTC)
+        date_from = date_to - timedelta(days=days_back)
+
+    batch_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     batch_dir = config.BATCH_DIR / batch_id
     raw_dir = batch_dir / "raw"
     invoices_dir = batch_dir / "invoices"
@@ -285,8 +303,7 @@ def run_full_sync(days_back: int):
             print(f"     - {name}")
 
     print(f"   Manifest: {batch_dir / 'manifest.json'}")
-    
-    
+
     if config.GENERATE_PDF:
         print("\n6. Generowanie PDF faktur...")
 
@@ -299,25 +316,73 @@ def run_full_sync(days_back: int):
         print(f"   Wygenerowano PDF: {pdf_report['generated_count']}")
         print(f"   Pominięto PDF: {pdf_report['skipped_count']}")
 
-       # subprocess.run(cmd, check=True)
+        # subprocess.run(cmd, check=True)
 
         manifest["pdf"] = pdf_report
         save_json(batch_dir / "manifest.json", manifest)
 
+        print(f"Okres: {year}-{month:02d}")
         print(f"   PDF katalog: {pdf_report['pdf_dir']}")
         print(f"   Wygenerowano PDF: {pdf_report['generated_count']}")
         print(f"   Pominięto PDF: {pdf_report['skipped_count']}")
-        
+
         index_file = build_batch_index(batch_dir)
         print(f"   Index HTML: {index_file}")
-    
+
+
 def run_incremental_sync():
     import sync_ksef_incremental
+
     sync_ksef_incremental.main()
 
 
 def main():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--year", type=int)
+    parser.add_argument("--month", type=int)
+    parser.add_argument(
+        "--mode",
+        choices=["menu", "auth", "export", "full-sync"],
+        default="menu",
+    )
+    parser.add_argument("--days-back", type=int, default=7)
+
+    args = parser.parse_args()
+
     config.validate_config()
+
+    if args.year and args.month:
+        year = args.year
+        month = args.month
+    else:
+        prev = datetime.now().replace(day=1)
+        prev = (
+            prev.replace(month=prev.month - 1)
+            if prev.month > 1
+            else prev.replace(year=prev.year - 1, month=12)
+        )
+        year = prev.year
+        month = prev.month
+
+    print(f"Okres: {year}-{month:02d}")
+    print(f"Tryb: {args.mode}")
+
+    if args.mode == "auth":
+        run_auth_only()
+        return
+
+    if args.mode == "export":
+        run_export_only(args.days_back)
+        return
+
+    if args.mode == "full-sync":
+        run_full_sync(
+            days_back=args.days_back,
+            year=year,
+            month=month,
+        )
+        return
 
     while True:
         print_menu()
@@ -337,9 +402,6 @@ def main():
                 days_back = int(raw or "7")
                 run_full_sync(days_back)
 
-            # elif choice == "4":
-                # run_incremental_sync()
-
             elif choice == "4":
                 print("Koniec.")
                 break
@@ -350,6 +412,7 @@ def main():
         except Exception as e:
             print("\nWystąpił błąd:")
             print(str(e))
+
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,77 @@
+[project]
+name = "ksef-sync"
+version = "0.1.0"
+description = "Local KSeF invoice synchronization and batch export tool"
+requires-python = ">=3.13"
+dependencies = [
+    "requests>=2.32",
+    "python-dotenv>=1.0",
+    "cryptography>=45.0",
+    "pathspec>=0.12",
+	"responses>=0.25",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.8",
+    "black>=24.0",
+    "bandit>=1.7",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py313"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "B",
+    "UP",
+    "SIM",
+]
+ignore = [
+    "E501"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v"
+
+markers = [
+    "security: security-related tests",
+]
+
+[tool.bandit]
+exclude_dirs = [
+    "venv",
+    "tools",
+    "pdf_generator",
+    "data",
+    "node_modules",
+]
+skips = [
+    "B101",
+    "B404",
+    "B603",
+    "B607",
+    "B110",
+    "B112",
+]
+
+[tool.setuptools]
+packages = ["ksef", "tools", "tools.ai_snapshot"]
+py-modules = ["config", "main"]
+
+[build-system]
+requires = ["setuptools>=70.0"]
+build-backend = "setuptools.build_meta"
+

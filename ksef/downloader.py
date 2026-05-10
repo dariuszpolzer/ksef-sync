@@ -1,10 +1,11 @@
-import json
 import base64
+import json
 import zipfile
-
 from pathlib import Path
+
 from cryptography.hazmat.primitives import padding as sym_padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
 
 class KSeFDownloader:
     def __init__(self, http, download_dir: Path):
@@ -33,18 +34,12 @@ class KSeFDownloader:
             )
 
         if len(iv) != 16:
-            raise ValueError(
-                f"Nieprawidłowa długość IV: {len(iv)} bajtów. Oczekiwano 16."
-            )
+            raise ValueError(f"Nieprawidłowa długość IV: {len(iv)} bajtów. Oczekiwano 16.")
 
         return aes_key, iv
 
     def decrypt_aes_cbc_pkcs7(
-        self,
-        encrypted_path: Path,
-        decrypted_zip_path: Path,
-        aes_key: bytes,
-        iv: bytes
+        self, encrypted_path: Path, decrypted_zip_path: Path, aes_key: bytes, iv: bytes
     ):
         ciphertext = encrypted_path.read_bytes()
 
@@ -57,7 +52,24 @@ class KSeFDownloader:
 
         decrypted_zip_path.parent.mkdir(parents=True, exist_ok=True)
         decrypted_zip_path.write_bytes(plain)
+
     def extract_zip(self, zip_path: Path, output_dir: Path):
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        output_root = output_dir.resolve()
+
         with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(output_dir)
+            for member in zf.infolist():
+                target_path = (output_dir / member.filename).resolve()
+
+                if not str(target_path).startswith(str(output_root)):
+                    raise ValueError(f"Unsafe zip entry detected: {member.filename}")
+
+                if member.is_dir():
+                    target_path.mkdir(parents=True, exist_ok=True)
+                    continue
+
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+
+                with zf.open(member) as src, open(target_path, "wb") as dst:
+                    dst.write(src.read())

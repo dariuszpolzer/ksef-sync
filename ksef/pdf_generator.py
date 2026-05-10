@@ -1,6 +1,5 @@
-import subprocess
+import subprocess  # nosec B404
 from pathlib import Path
-
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 RENDER_SCRIPT = BASE_DIR / "pdf_generator" / "render_invoice.mjs"
@@ -22,45 +21,37 @@ def generate_invoice_pdfs(batch_dir: Path) -> dict:
         pdf_path = (pdf_dir / f"{xml_path.stem}.pdf").resolve()
 
         if pdf_path.exists():
-            skipped.append({
-                "xml": str(xml_path),
-                "pdf": str(pdf_path),
-                "reason": "PDF already exists"
-            })
+            skipped.append(
+                {
+                    "xml": str(xml_path),
+                    "pdf": str(pdf_path),
+                    "reason": "PDF already exists",
+                }
+            )
             continue
 
-        cmd = [
-            "node",
-            str(RENDER_SCRIPT),
-            str(xml_path),
-            str(pdf_path)
-        ]
+        cmd = ["node", str(RENDER_SCRIPT), str(xml_path), str(pdf_path)]
 
         try:
-            subprocess.run(
+            subprocess.run(  # nosec B603
                 cmd,
                 check=True,
-                cwd=str(BASE_DIR)
+                cwd=str(BASE_DIR),
             )
 
             if pdf_path.exists():
-                generated.append({
-                    "xml": str(xml_path),
-                    "pdf": str(pdf_path)
-                })
+                generated.append({"xml": str(xml_path), "pdf": str(pdf_path)})
             else:
-                errors.append({
-                    "xml": str(xml_path),
-                    "pdf": str(pdf_path),
-                    "error": "Node finished, but PDF file was not created"
-                })
+                errors.append(
+                    {
+                        "xml": str(xml_path),
+                        "pdf": str(pdf_path),
+                        "error": "Node finished, but PDF file was not created",
+                    }
+                )
 
         except Exception as e:
-            errors.append({
-                "xml": str(xml_path),
-                "pdf": str(pdf_path),
-                "error": str(e)
-            })
+            errors.append({"xml": str(xml_path), "pdf": str(pdf_path), "error": str(e)})
 
     return {
         "pdf_dir": str(pdf_dir),

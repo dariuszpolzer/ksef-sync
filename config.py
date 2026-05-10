@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -13,19 +14,17 @@ SYMMETRIC_KEY_CERT_PATH = os.getenv("KSEF_SYMMETRIC_KEY_CERT_PATH", "./ksef_symm
 DATA_DIR = Path("./data")
 AUTH_DIR = DATA_DIR / "auth"
 EXPORT_DIR = DATA_DIR / "exports"
-DOWNLOAD_DIR= DATA_DIR / "downloads"
+DOWNLOAD_DIR = DATA_DIR / "downloads"
 BATCH_DIR = DATA_DIR / "batches"
 
 HTTP_TIMEOUT = 60
 AUTH_POLL_INTERVAL = 2
 EXPORT_POLL_INTERVAL = 20
 
-PDF_GENERATOR_DIR = os.getenv(
-    "KSEF_PDF_GENERATOR_DIR",
-    "./pdf_generator/ksef-pdf-generator"
-)
+PDF_GENERATOR_DIR = os.getenv("KSEF_PDF_GENERATOR_DIR", "./pdf_generator/ksef-pdf-generator")
 
 GENERATE_PDF = os.getenv("GENERATE_PDF", "false").lower() == "true"
+
 
 def validate_config():
     missing = []
