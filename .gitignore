@@ -27,3 +27,5 @@ bandit_report.html
 .vscode/
 .idea/
 ```
+node_modules/
+node_modules/

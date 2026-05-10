@@ -3,9 +3,7 @@ from pathlib import Path
 from ksef import sync_ksef_incremental as inc
 
 
-def test_load_state_returns_empty_dict_when_file_missing(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_load_state_returns_empty_dict_when_file_missing(tmp_path: Path, monkeypatch) -> None:
     state_file = tmp_path / "state.json"
     monkeypatch.setattr(inc, "STATE_FILE", state_file)
 

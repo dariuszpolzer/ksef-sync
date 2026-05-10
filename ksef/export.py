@@ -7,7 +7,6 @@ from ksef.utils import save_json
 
 
 class KSeFExportClient:
-
     def __init__(self, http, export_dir):
         self.http = http
         self.export_dir = export_dir
@@ -24,7 +23,6 @@ class KSeFExportClient:
         subject_type: str = "Subject2",
         export_key: str = "export",
     ):
-
         enc = self.crypto.prepare_export_encryption()
 
         url = f"{BASE_URL}/invoices/exports"
@@ -66,7 +64,6 @@ class KSeFExportClient:
         return data
 
     def get_status(self, access_token: str, reference_number: str):
-
         url = f"{BASE_URL}/invoices/exports/{reference_number}"
 
         headers = {"Authorization": f"Bearer {access_token}"}
@@ -75,11 +72,9 @@ class KSeFExportClient:
         return response.json()
 
     def wait_for_export(self, access_token: str, reference_number: str, max_attempts=360):
-
         import time
 
         for attempt in range(1, max_attempts + 1):
-
             data = self.get_status(access_token, reference_number)
             save_json(self.export_dir / "02_export_status.json", data)
 
@@ -101,14 +96,12 @@ class KSeFExportClient:
         raise TimeoutError("Przekroczono czas oczekiwania na eksport.")
 
     def extract_part_urls(self, export_status: dict):
-
         package = export_status.get("package") or {}
         parts = package.get("parts") or []
 
         results = []
 
         for idx, part in enumerate(parts, start=1):
-
             url = part.get("url") or part.get("downloadUrl")
 
             if not url:

@@ -22,13 +22,15 @@ def build_batch_index(batch_dir: Path):
         xml_link = f"invoices/{filename}"
         pdf_link = f"pdf/{Path(filename).stem}.pdf"
 
-        html_rows.append(f"""
+        html_rows.append(
+            f"""
 <tr>
 <td>{nr_ksef}</td>
 <td><a href="{xml_link}" target="_blank">XML</a></td>
 <td><a href="{pdf_link}" target="_blank">PDF</a></td>
 </tr>
-""")
+"""
+        )
 
     html = f"""
 <!DOCTYPE html>
@@ -80,7 +82,7 @@ Faktur: {manifest["batch"]["invoice_count"]}
 <th>PDF</th>
 </tr>
 
-{''.join(html_rows)}
+{"".join(html_rows)}
 
 </table>
 
