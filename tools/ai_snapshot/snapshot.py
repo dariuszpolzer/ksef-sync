@@ -378,8 +378,7 @@ def render_tooling_context(root: Path) -> str:
 
     for filename in [
         "pyproject.toml",
-        "requirements.txt",
-        "pytest.ini",
+        "uv.lock",
         ".bandit",
         "check.ps1",
         "fix.ps1",

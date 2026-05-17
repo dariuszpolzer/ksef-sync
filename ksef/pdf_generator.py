@@ -33,14 +33,26 @@ def generate_invoice_pdfs(batch_dir: Path) -> dict:
         cmd = ["node", str(RENDER_SCRIPT), str(xml_path), str(pdf_path)]
 
         try:
-            subprocess.run(  # nosec B603
+            result = subprocess.run(  # nosec B603
                 cmd,
-                check=True,
+                check=False,
                 cwd=str(BASE_DIR),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
             )
 
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr or result.stdout or "Node PDF generator failed")
+
             if pdf_path.exists():
-                generated.append({"xml": str(xml_path), "pdf": str(pdf_path)})
+                generated.append(
+                    {
+                        "xml": str(xml_path),
+                        "pdf": str(pdf_path),
+                    }
+                )
             else:
                 errors.append(
                     {
@@ -51,7 +63,13 @@ def generate_invoice_pdfs(batch_dir: Path) -> dict:
                 )
 
         except Exception as e:
-            errors.append({"xml": str(xml_path), "pdf": str(pdf_path), "error": str(e)})
+            errors.append(
+                {
+                    "xml": str(xml_path),
+                    "pdf": str(pdf_path),
+                    "error": str(e),
+                }
+            )
 
     return {
         "pdf_dir": str(pdf_dir),

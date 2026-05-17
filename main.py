@@ -15,15 +15,61 @@ from ksef.utils import ensure_dir, save_json
 
 
 def print_menu():
-    print("\nWybierz tryb:")
-    print("1 - tylko uwierzytelnienie")
-    print("2 - eksport za podany zakres dni")
-    print("3 - pełny jednorazowy sync (auth -> export -> download -> decrypt -> unzip)")
-    print("4 - wyjście")
+    print("\n=== TRYB MANUALNY / DIAGNOSTYCZNY ===")
+
+    print("\n[KSeF API]")
+    print("1 - test uwierzytelnienia KSeF")
+    print("2 - test eksportu/statusu (bez pobierania)")
+    print("3 - pełny sync testowy (mały zakres)")
+
+    print("\n[OFFLINE / LOKALNIE]")
+    print("4 - generowanie PDF dla istniejącego batcha")
+    print("5 - budowa index.html dla batcha")
+
+    print("\n6 - wyjście")
 
 
-# print("4 - uruchom sync_ksef_incremental.py")
-# print("5 - wyjście")
+def run_generate_pdf_for_batch():
+    raw = input("Podaj batch_id: ").strip()
+
+    if not raw:
+        print("Brak batch_id")
+        return
+
+    batch_dir = config.BATCH_DIR / raw
+
+    if not batch_dir.exists():
+        print(f"Batch nie istnieje: {batch_dir}")
+        return
+
+    print("\nGenerowanie PDF...")
+    pdf_report = generate_invoice_pdfs(batch_dir)
+
+    print(f"PDF katalog: {pdf_report['pdf_dir']}")
+    print(f"Wygenerowano PDF: {pdf_report['generated_count']}")
+    print(f"Pominięto PDF: {pdf_report['skipped_count']}")
+
+    if pdf_report["error_count"]:
+        print(f"Błędy: {pdf_report['error_count']}")
+
+
+def run_build_index_for_batch():
+    raw = input("Podaj batch_id: ").strip()
+
+    if not raw:
+        print("Brak batch_id")
+        return
+
+    batch_dir = config.BATCH_DIR / raw
+
+    if not batch_dir.exists():
+        print(f"Batch nie istnieje: {batch_dir}")
+        return
+
+    print("\nBudowa index.html...")
+    index_file = build_batch_index(batch_dir)
+
+    print(f"Index HTML: {index_file}")
 
 
 def run_auth_only():
@@ -88,17 +134,25 @@ def prepare_batch_for_jpk(
     ensure_dir(invoices_dir)
 
     invoices = []
+    duplicate_names = []
+    seen = set()
 
     for raw_dir_txt in raw_dirs:
         raw_dir = Path(raw_dir_txt)
 
-        for xml_path in raw_dir.rglob("*.xml"):
+        for xml_path in sorted(raw_dir.rglob("*.xml")):
             filename = xml_path.name
+
+            if filename in seen:
+                duplicate_names.append(filename)
+                continue
+
+            seen.add(filename)
+
+            nr_ksef = filename[:-4] if filename.lower().endswith(".xml") else filename
             target_path = invoices_dir / filename
 
             shutil.copy2(xml_path, target_path)
-
-            nr_ksef = filename[:-4] if filename.lower().endswith(".xml") else filename
 
             invoices.append(
                 {
@@ -110,14 +164,6 @@ def prepare_batch_for_jpk(
             )
 
     invoices.sort(key=lambda x: x["filename"])
-
-    duplicate_names = []
-    seen = set()
-
-    for inv in invoices:
-        if inv["filename"] in seen:
-            duplicate_names.append(inv["filename"])
-        seen.add(inv["filename"])
 
     manifest = {
         "batch": {
@@ -312,16 +358,10 @@ def run_full_sync(days_back: int, year: int | None = None, month: int | None = N
         manifest["pdf"] = pdf_report
         save_json(batch_dir / "manifest.json", manifest)
 
-        print(f"   PDF katalog: {pdf_report['pdf_dir']}")
-        print(f"   Wygenerowano PDF: {pdf_report['generated_count']}")
-        print(f"   Pominięto PDF: {pdf_report['skipped_count']}")
-
-        # subprocess.run(cmd, check=True)
-
-        manifest["pdf"] = pdf_report
-        save_json(batch_dir / "manifest.json", manifest)
-
-        print(f"Okres: {year}-{month:02d}")
+        if year is not None and month is not None:
+            print(format_period_label(year, month, date_from, date_to))
+        else:
+            print(f"Zakres: {date_from.date()} - {date_to.date()}")
         print(f"   PDF katalog: {pdf_report['pdf_dir']}")
         print(f"   Wygenerowano PDF: {pdf_report['generated_count']}")
         print(f"   Pominięto PDF: {pdf_report['skipped_count']}")
@@ -331,9 +371,16 @@ def run_full_sync(days_back: int, year: int | None = None, month: int | None = N
 
 
 def run_incremental_sync():
-    import sync_ksef_incremental
+    from ksef import sync_ksef_incremental
 
     sync_ksef_incremental.main()
+
+
+def format_period_label(year, month, date_from, date_to):
+    if year is not None and month is not None:
+        return f"Okres: {year}-{month:02d}"
+
+    return f"Zakres: {date_from.date()} - {date_to.date()}"
 
 
 def main():
@@ -343,14 +390,12 @@ def main():
     parser.add_argument("--month", type=int)
     parser.add_argument(
         "--mode",
-        choices=["menu", "auth", "export", "full-sync"],
+        choices=["menu", "auth", "export", "full-sync", "incremental"],
         default="menu",
     )
     parser.add_argument("--days-back", type=int, default=7)
 
     args = parser.parse_args()
-
-    config.validate_config()
 
     if args.year and args.month:
         year = args.year
@@ -369,19 +414,27 @@ def main():
     print(f"Tryb: {args.mode}")
 
     if args.mode == "auth":
+        config.validate_config()
         run_auth_only()
         return
 
     if args.mode == "export":
+        config.validate_config()
         run_export_only(args.days_back)
         return
 
     if args.mode == "full-sync":
+        config.validate_config()
         run_full_sync(
             days_back=args.days_back,
             year=year,
             month=month,
         )
+        return
+
+    if args.mode == "incremental":
+        config.validate_config()
+        run_incremental_sync()
         return
 
     while True:
@@ -390,19 +443,30 @@ def main():
 
         try:
             if choice == "1":
+                config.validate_config()
                 run_auth_only()
 
             elif choice == "2":
-                raw = input("Ile dni wstecz pobrać? [np. 7]: ").strip()
-                days_back = int(raw or "7")
+                config.validate_config()
+                raw = input("Ile dni wstecz sprawdzić eksport/status? [1]: ").strip()
+
+                days_back = int(raw or "1")
                 run_export_only(days_back)
 
             elif choice == "3":
-                raw = input("Ile dni wstecz pobrać? [np. 7]: ").strip()
-                days_back = int(raw or "7")
+                config.validate_config()
+                raw = input("Ile dni wstecz pobrać w pełnym syncu testowym? [1]: ").strip()
+
+                days_back = int(raw or "1")
                 run_full_sync(days_back)
 
             elif choice == "4":
+                run_generate_pdf_for_batch()
+
+            elif choice == "5":
+                run_build_index_for_batch()
+
+            elif choice == "6":
                 print("Koniec.")
                 break
 

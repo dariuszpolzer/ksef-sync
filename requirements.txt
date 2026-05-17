@@ -1,9 +1,0 @@
-requests>=2.32
-python-dotenv>=1.0
-cryptography>=45.0
-pathspec>=0.12
-
-pytest>=8.0
-ruff>=0.8
-black>=24.0
-bandit>=1.7

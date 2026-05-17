@@ -1,7 +1,7 @@
 # ============================================
 # CHECK.PS1 — testy + lint + format + security
 # Projekt: ksef-sync
-# Python: 3.13
+# Python: 3.13 / uv
 # ============================================
 
 $ErrorActionPreference = "Stop"
@@ -16,11 +16,16 @@ if (-not (Test-Path ".git")) {
     exit 1
 }
 
-# Sprawdzenie venv
-if (-not ($env:VIRTUAL_ENV)) {
-    Write-Host "WARNING: venv nie jest aktywny." -ForegroundColor Yellow
-    Write-Host "Uruchom najpierw: .\venv\Scripts\Activate.ps1"
-    Write-Host ""
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    Write-Host "ERROR: Nie znaleziono uv. Zainstaluj uv i uruchom: uv sync --extra dev" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "=== UV SYNC ===" -ForegroundColor Cyan
+uv sync --extra dev
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "`nUV SYNC FAILED" -ForegroundColor Red
+    exit $LASTEXITCODE
 }
 
 # Główne pliki/katalogi projektu
@@ -48,8 +53,7 @@ if ($existingLintTargets.Count -eq 0) {
 $hasTests = Test-Path "tests"
 
 Write-Host "Python:" -ForegroundColor Cyan
-python --version
-python -m pip --version
+uv run python --version
 
 Write-Host ""
 Write-Host "Targets:" -ForegroundColor Cyan
@@ -59,7 +63,7 @@ $existingLintTargets | ForEach-Object { Write-Host " - $_" }
 if ($hasTests) {
     Write-Host ""
     Write-Host "=== PYTEST ===" -ForegroundColor Cyan
-    python -m pytest -v
+    uv run pytest -v
     if ($LASTEXITCODE -ne 0) {
         Write-Host "`nPYTEST FAILED" -ForegroundColor Red
         exit $LASTEXITCODE
@@ -74,7 +78,7 @@ else {
 # RUFF
 Write-Host ""
 Write-Host "=== RUFF ===" -ForegroundColor Cyan
-python -m ruff check @existingLintTargets
+uv run ruff check @existingLintTargets
 if ($LASTEXITCODE -ne 0) {
     Write-Host "`nRUFF FAILED" -ForegroundColor Red
     exit $LASTEXITCODE
@@ -83,7 +87,7 @@ if ($LASTEXITCODE -ne 0) {
 # BLACK
 Write-Host ""
 Write-Host "=== BLACK CHECK ===" -ForegroundColor Cyan
-python -m black --check @existingLintTargets
+uv run black --check @existingLintTargets
 if ($LASTEXITCODE -ne 0) {
     Write-Host "`nBLACK FAILED" -ForegroundColor Red
     exit $LASTEXITCODE
@@ -92,7 +96,7 @@ if ($LASTEXITCODE -ne 0) {
 # BANDIT
 Write-Host ""
 Write-Host "=== BANDIT ===" -ForegroundColor Cyan
-python -m bandit -r ksef
+uv run bandit -r ksef
 if ($LASTEXITCODE -ne 0) {
     Write-Host "`nBANDIT FAILED" -ForegroundColor Red
     exit $LASTEXITCODE

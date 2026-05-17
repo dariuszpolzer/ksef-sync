@@ -17,6 +17,11 @@ if (Test-Path ".\venv") {
     Remove-Item -Recurse -Force ".\venv"
 }
 
+if (Test-Path ".\.venv") {
+    Write-Host "Usuwanie .venv..." -ForegroundColor Yellow
+    Remove-Item -Recurse -Force ".\.venv"
+}
+
 # Usunięcie cache Python
 Write-Host "Usuwanie __pycache__..." -ForegroundColor Yellow
 Get-ChildItem -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue |
@@ -62,6 +67,7 @@ Write-Host "batches/"
 Write-Host "logs/"
 Write-Host "exports/"
 Write-Host "venv/"
+Write-Host ".venv/"
 Write-Host ""
 
 Write-Host "Status Git:" -ForegroundColor Cyan

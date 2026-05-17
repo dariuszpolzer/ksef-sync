@@ -60,3 +60,17 @@ def test_extract_zip_blocks_zip_slip(tmp_path: Path) -> None:
         downloader.extract_zip(zip_path, output_dir)
 
     assert not (tmp_path / "evil.txt").exists()
+
+
+@pytest.mark.security
+def test_extract_zip_blocks_sibling_prefix_escape(tmp_path: Path) -> None:
+    zip_path = tmp_path / "malicious.zip"
+    output_dir = tmp_path / "out"
+    downloader = make_downloader(tmp_path)
+
+    create_test_zip(zip_path, {"../out2/evil.txt": "hacked"})
+
+    with pytest.raises(ValueError, match="Unsafe zip entry"):
+        downloader.extract_zip(zip_path, output_dir)
+
+    assert not (tmp_path / "out2" / "evil.txt").exists()

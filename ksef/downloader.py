@@ -62,7 +62,7 @@ class KSeFDownloader:
             for member in zf.infolist():
                 target_path = (output_dir / member.filename).resolve()
 
-                if not str(target_path).startswith(str(output_root)):
+                if not target_path.is_relative_to(output_root):
                     raise ValueError(f"Unsafe zip entry detected: {member.filename}")
 
                 if member.is_dir():

@@ -1,3 +1,4 @@
+import html
 import json
 from pathlib import Path
 
@@ -19,25 +20,24 @@ def build_batch_index(batch_dir: Path):
         filename = inv["filename"]
         nr_ksef = inv["nr_ksef"]
 
-        xml_link = f"invoices/{filename}"
-        pdf_link = f"pdf/{Path(filename).stem}.pdf"
+        xml_link = html.escape(f"invoices/{filename}", quote=True)
+        pdf_link = html.escape(f"pdf/{Path(filename).stem}.pdf", quote=True)
+        display_nr_ksef = html.escape(nr_ksef)
 
-        html_rows.append(
-            f"""
+        html_rows.append(f"""
 <tr>
-<td>{nr_ksef}</td>
+<td>{display_nr_ksef}</td>
 <td><a href="{xml_link}" target="_blank">XML</a></td>
 <td><a href="{pdf_link}" target="_blank">PDF</a></td>
 </tr>
-"""
-        )
+""")
 
-    html = f"""
+    html_content = f"""
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>KSeF batch {manifest["batch"]["batch_id"]}</title>
+<title>KSeF batch {html.escape(manifest["batch"]["batch_id"])}</title>
 
 <style>
 body {{
@@ -68,7 +68,7 @@ tr:hover {{
 
 <body>
 
-<h2>KSeF Batch: {manifest["batch"]["batch_id"]}</h2>
+<h2>KSeF Batch: {html.escape(manifest["batch"]["batch_id"])}</h2>
 
 <p>
 Faktur: {manifest["batch"]["invoice_count"]}
@@ -91,6 +91,6 @@ Faktur: {manifest["batch"]["invoice_count"]}
 """
 
     output_file = batch_dir / "index.html"
-    output_file.write_text(html, encoding="utf-8")
+    output_file.write_text(html_content, encoding="utf-8")
 
     return output_file

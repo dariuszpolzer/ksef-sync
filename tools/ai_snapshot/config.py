@@ -603,6 +603,7 @@ TEXT_EXTENSIONS = {
     ".bat",
     ".ps1",
     ".dockerfile",
+    ".lock",
 }
 
 TEXT_FILENAMES = {
@@ -618,9 +619,8 @@ TEXT_FILENAMES = {
 
 PRIORITY_FILES = [
     "pyproject.toml",
-    "requirements.txt",
+    "uv.lock",
     "README.md",
-    "pytest.ini",
     ".gitignore",
     ".gitattributes",
     "check.ps1",

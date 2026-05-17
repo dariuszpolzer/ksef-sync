@@ -1,7 +1,7 @@
 # ============================================
 # FIX.PS1 — autoformat + lint fix
 # Projekt: ksef-sync
-# Python: 3.13
+# Python: 3.13 / uv
 # ============================================
 
 $ErrorActionPreference = "Stop"
@@ -15,10 +15,9 @@ if (-not (Test-Path ".git")) {
     exit 1
 }
 
-if (-not ($env:VIRTUAL_ENV)) {
-    Write-Host "WARNING: venv nie jest aktywny." -ForegroundColor Yellow
-    Write-Host "Uruchom najpierw: .\venv\Scripts\Activate.ps1"
-    Write-Host ""
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    Write-Host "ERROR: Nie znaleziono uv. Zainstaluj uv i uruchom: uv sync --extra dev" -ForegroundColor Red
+    exit 1
 }
 
 $targets = @(
@@ -41,7 +40,7 @@ if ($existingTargets.Count -eq 0) {
 }
 
 Write-Host "Python:" -ForegroundColor Cyan
-python --version
+uv run python --version
 
 Write-Host ""
 Write-Host "Targets:" -ForegroundColor Cyan
@@ -49,7 +48,13 @@ $existingTargets | ForEach-Object { Write-Host " - $_" }
 
 Write-Host ""
 Write-Host "=== RUFF FIX ===" -ForegroundColor Cyan
-python -m ruff check --fix @existingTargets
+uv sync --extra dev
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "`nUV SYNC FAILED" -ForegroundColor Red
+    exit $LASTEXITCODE
+}
+
+uv run ruff check --fix @existingTargets
 if ($LASTEXITCODE -ne 0) {
     Write-Host "`nRUFF FIX FAILED" -ForegroundColor Red
     exit $LASTEXITCODE
@@ -57,7 +62,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host ""
 Write-Host "=== BLACK FORMAT ===" -ForegroundColor Cyan
-python -m black @existingTargets
+uv run black @existingTargets
 if ($LASTEXITCODE -ne 0) {
     Write-Host "`nBLACK FORMAT FAILED" -ForegroundColor Red
     exit $LASTEXITCODE
@@ -65,7 +70,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host ""
 Write-Host "=== RUFF CHECK AFTER FIX ===" -ForegroundColor Cyan
-python -m ruff check @existingTargets
+uv run ruff check @existingTargets
 if ($LASTEXITCODE -ne 0) {
     Write-Host "`nRUFF CHECK FAILED AFTER FIX" -ForegroundColor Red
     exit $LASTEXITCODE

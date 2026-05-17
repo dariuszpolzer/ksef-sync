@@ -84,3 +84,34 @@ def test_build_batch_index_handles_missing_pdf(tmp_path: Path) -> None:
 
     assert "invoice_1.xml" in content
     assert "KSEF-TEST-001" in content
+
+
+def test_build_batch_index_escapes_manifest_values(tmp_path: Path) -> None:
+    batch_dir = tmp_path / "batch_001"
+    batch_dir.mkdir()
+
+    manifest = {
+        "batch": {
+            "batch_id": 'batch_<script>"',
+            "invoice_count": 1,
+        },
+        "invoices": [
+            {
+                "filename": 'invoice_<script>".xml',
+                "nr_ksef": "<script>alert(1)</script>",
+            }
+        ],
+    }
+
+    (batch_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2),
+        encoding="utf-8",
+    )
+
+    build_batch_index(batch_dir)
+
+    content = (batch_dir / "index.html").read_text(encoding="utf-8")
+
+    assert "<script>alert(1)</script>" not in content
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in content
+    assert "invoice_&lt;script&gt;&quot;.xml" in content

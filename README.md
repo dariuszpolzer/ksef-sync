@@ -3,16 +3,43 @@
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
 # ksef-sync
+## Spis treści
+
+- [Status projektu](#status-projektu)
+- [Funkcje](#funkcje)
+- [Pipeline](#pipeline)
+- [Architektura projektu](#architektura-projektu)
+- [Logika okresu JPK](#logika-okresu-jpk)
+- [Obsługa NrKSeF](#obsługa-nrksef)
+- [GTU](#gtu)
+- [Procedury VAT](#procedury-vat)
+- [Faktury korygujące](#faktury-korygujące)
+- [Deduplikacja](#deduplikacja)
+- [Walidacja](#walidacja)
+- [Raporty jakości](#raporty-jakości)
+- [Bezpieczeństwo](#bezpieczeństwo)
+- [Uwagi dotyczące obliczeń finansowych](#uwagi-dotyczące-obliczeń-finansowych)
+- [Znane ograniczenia](#znane-ograniczenia)
+- [Development](#development)
+- [Quick start](#quick-start)
+- [Przykładowe uruchomienie](#przykładowe-uruchomienie)
+- [Przykładowy workflow](#przykładowy-workflow)
+- [Typowe zastosowania](#typowe-zastosowania)
+- [Disclaimer](#disclaimer)
+- [CI/CD](#cicd)
+- [Licencja](#licencja)
+- [Autor](#autor)
+
 `ksef-sync` to narzędzie w Pythonie do lokalnej synchronizacji faktur z KSeF, obsługi batchy XML, generowania podglądów PDF oraz przygotowania danych do dalszego przetwarzania, w szczególności pod kątem JPK_V7.
 
 > Lokalny pipeline ETL dla KSeF
-> KSeF → XML → PDF → HTML → JPK_V7
-
+>KSeF API → ZIP → XML → PDF → manifest → index.html → JPK_V7
 Projekt wspiera proces:
 
 ```text
-KSeF API → eksport faktur → paczki ZIP → XML → PDF → manifest → indeks HTML → dane do JPK_V7
+KSeF API → ZIP → XML → PDF → manifest → index.html → JPK_V7
 ```
+
 
 ## Status projektu
 
@@ -22,6 +49,7 @@ Projekt rozwijany aktywnie.
 ## Wymagania
 
 - Python 3.13 +
+- uv
 - Node.js 20+
 - PowerShell 7+ (Windows recommended)
 - dostęp do środowiska KSeF
@@ -29,7 +57,7 @@ Projekt rozwijany aktywnie.
 ## Pipeline
 
 ```
-KSeF API → batch XML → PDF → manifest → JPK
+KSeF API → ZIP → XML → PDF → manifest → index.html → JPK_V7
 ```
 
 
@@ -76,7 +104,7 @@ flowchart TD
     I --> N[Generator PDF]
     N --> O[pdf/*.pdf]
 
-    I --> P[ksef2jpk]
+    I --> P[ksef-sync]
     P --> Q[JPK_V7 XML]
     P --> R[Podgląd HTML JPK]
 
@@ -85,7 +113,59 @@ flowchart TD
     Q --> S[Import do systemów księgowych]
 ```
 
-## Instalacja
+## Miejsce projektu w procesie rozliczeniowym
+
+`ksef-sync` jest pierwszym ogniwem lokalnego procesu obsługi danych z KSeF.
+
+Jego zadaniem jest pobranie kompletnego zestawu faktur z systemu KSeF za wskazany okres oraz przygotowanie ich do dalszego przetwarzania.
+
+W szerszym workflow projekt może być uruchamiany przez zewnętrzny skrypt orkiestrujący, który wykonuje kolejne etapy procesu miesięcznego:
+
+```text
+KSeF
+  ↓
+ksef-sync
+  ↓
+XML faktur
+  ↓
+ksef2jpk
+  ↓
+pliki JPK
+  ↓
+tax-app / raporty podatkowe
+```
+## Orchestrator
+
+Przykładowy miesięczny orchestrator może wykonywać kolejno:
+
+1. synchronizację faktur z KSeF,
+2. wygenerowanie struktur JPK w aplikacji `ksef2jpk`,
+3. przygotowanie raportów podatkowych w aplikacji `tax-app`,
+4. zapis logów i raportów dla danego okresu rozliczeniowego.
+
+Orchestrator używa lokalnych virtual environment (`.venv`)
+dla każdego projektu, co zapewnia:
+- izolację zależności,
+- powtarzalność środowiska uruchomieniowego,
+- niezależność od globalnej instalacji Pythona.
+
+### Przykładowe uruchomienie
+
+```powershell
+.\monthly-orchestrator.ps1 -Year 2026 -Month 4
+
+```
+Dostępne przełączniki Orchestrator:
+
+```powershell
+-DryRun
+-SkipSync
+-SkipJpk
+-SkipTaxApp
+```
+Orchestrator nie jest wymagany do działania `ksef-sync`, ale pokazuje docelowe miejsce projektu w kompletnym, lokalnym procesie rozliczeniowym.
+
+## Instalacja Windows
 
 ### Klonowanie repozytorium
 ```bash
@@ -94,22 +174,10 @@ cd ksef-sync
 ```
 ## Środowisko Python
 
-Utworzenie i aktywacja virtual environment:
-```bash
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-```
-Aktualizacja pip i instalacja zależności:
+Projekt używa `uv`. Źródłem prawdy dla zależności jest `pyproject.toml`, a zablokowane wersje są w `uv.lock`.
 
 ```bash
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-Instalacja narzędzi developerskich:
-
-```bash
-pip install -e ".[dev]"
+uv sync --extra dev
 ```
 ### Generator PDF KSeF (Node.js)
 
@@ -121,6 +189,22 @@ npm install
 npm run build
 ```
 
+## Instalacja na Linux
+
+### Klonowanie repozytorium
+```bash
+git clone https://github.com/dpolz/ksef-sync.git
+cd ksef-sync
+```
+Środowisko Python
+
+```bash
+uv sync --extra dev
+```
+Uruchomienie
+```bash
+uv run python main.py --mode full-sync --year 2026 --month 5
+```
 ## Konfiguracja
 
 Utwórz plik `.env` na podstawie `.env.example`.
@@ -139,24 +223,22 @@ KSEF_TOKEN=your-token
 | `KSEF_NIP` | NIP podatnika |
 | `KSEF_TOKEN` | token autoryzacyjny |
 
-```markdown
-## Bezpieczeństwo
+## 🛡️ Bezpieczeństwo
 
-Projekt nie przechowuje danych w chmurze. Całość przetwarzania odbywa się lokalnie.
-
-Dane autoryzacyjne KSeF powinny być przechowywane wyłącznie
-w lokalnym pliku `.env`, który nie jest commitowany do repozytorium.
-
-Pliki `.env`, batch exportów, logi oraz wygenerowane dane
-są domyślnie wykluczone przez `.gitignore`.
-```
+> [!WARNING]
+> Projekt nie wysyła danych do zewnętrznych usług.
+> Całość przetwarzania odbywa się lokalnie.
+> Dane autoryzacyjne KSeF powinny być przechowywane wyłącznie
+> w lokalnym pliku `.env`, który nie jest commitowany do repozytorium.
+> Pliki `.env`, batch exportów, logi oraz wygenerowane dane
+> są domyślnie wykluczone przez `.gitignore`.
 
 ## Uruchomienie
 
 ### Synchronizacja przyrostowa (domyślnie)
 
 ```bash
-python main.py
+uv run python main.py
 ```
 
 Domyślnie projekt pobiera faktury z ostatnich 7 dni
@@ -165,51 +247,54 @@ i zapisuje stan synchronizacji w `data/state.json`.
 ### Synchronizacja pełna dla wybranego okresu
 
 ```bash
-python main.py --mode full-sync --year 2026 --month 5
+uv run python main.py --mode full-sync --year 2026 --month 5
 ```
 
 ### Bezpośrednie uruchomienie modułu
 
-```bash
-python -m ksef.sync_ksef_incremental
-```
+Projekt może działać:
+- w trybie manualnym,
+- w trybie orchestratora miesięcznego,
+- w trybie synchronizacji przyrostowej.
 
 ## Przykładowe uruchomienie
-
-```bash
-python -m ksef.sync_ksef_incremental
-```
-
-Przykładowy wynik:
+### Tryb manualny / diagnostyczny
 
 ```text
-Tryb przyrostowy KSeF
-Brak state.json — pobieram domyślnie ostatnie 7 dni.
+...\ksef-sync> uv run python main.py
 
-1. Uwierzytelnianie...
-   OK
+Okres: YYYY-MM
+Tryb: menu
 
-2. Start eksportów...
-   sprzedaż (Subject1)
-   zakup/koszty (Subject2)
+=== TRYB MANUALNY / DIAGNOSTYCZNY ===
 
-3. Pobieranie i rozpakowanie...
-   odszyfrowanie AES
-   rozpakowanie ZIP
+[KSeF API]
+1 - test uwierzytelnienia KSeF
+2 - test eksportu/statusu (bez pobierania)
+3 - pełny sync testowy (mały zakres)
 
-4. Generowanie PDF faktur...
+[OFFLINE / LOKALNIE]
+4 - generowanie PDF dla istniejącego batcha
+5 - budowa index.html dla batcha
 
-PDF generated:
-data/batches/<batch-id>/pdf/invoice_preview.pdf
-
-Gotowe.
-
-Batch:
-data/batches/<batch-id>
-
-Manifest:
-data/batches/<batch-id>/manifest.json
+6 - wyjście
 ```
+## Tryby offline
+
+Opcje:
+- generowanie PDF,
+- budowa index.html
+
+działają całkowicie lokalnie na istniejących batchach XML
+i nie angażują API KSeF.
+
+Pozwala to:
+- regenerować PDF,
+- przebudowywać indeks HTML,
+- testować pipeline,
+- debugować batch eksportu,
+
+bez ponownego pobierania danych z KSeF.
 
 ## Integracja z zewnętrznym orchestratoriem
 
@@ -224,20 +309,6 @@ Przykładowy orchestrator może wykonywać:
 5. eksport danych do JPK_V7,
 6. raportowanie miesięczne.
 
-Przykład uruchomienia z PowerShell:
-
-```powershell
-python main.py --mode full-sync --year 2026 --month 5
-```
-
-Przykładowy wrapper:
-
-```powershell
-Run-Step `
-    -Name "KSeF Sync" `
-    -Path $ksefSyncDir `
-    -Command "python main.py --mode full-sync --year $Year --month $Month"
-```
 
 Projekt został zaprojektowany tak, aby można go było łatwo integrować z:
 - harmonogramami Windows Task Scheduler,
@@ -245,6 +316,41 @@ Projekt został zaprojektowany tak, aby można go było łatwo integrować z:
 - GitHub Actions,
 - pipeline ETL,
 - systemami księgowymi i raportowymi.
+
+## Przykładowe uruchomienie
+
+### Tryb manualny / diagnostyczny
+
+```text
+...\ksef-sync> uv run python main.py
+
+Okres: YYYY-MM
+Tryb: menu
+
+=== TRYB MANUALNY / DIAGNOSTYCZNY ===
+
+[KSeF API]
+1 - test uwierzytelnienia KSeF
+2 - test eksportu/statusu (bez pobierania)
+3 - pełny sync testowy (mały zakres)
+
+[OFFLINE / LOKALNIE]
+4 - generowanie PDF dla istniejącego batcha
+5 - budowa index.html dla batcha
+
+6 - wyjście
+```
+
+## Limity API KSeF
+
+Projekt respektuje odpowiedzi HTTP 429 (`Too Many Requests`)
+oraz nagłówek `Retry-After`.
+
+Dla większych zakresów dat zalecane jest:
+- używanie orchestratora,
+- synchronizacja przyrostowa,
+- ograniczanie zakresu manualnych testów.
+
 
 ## Roadmap
 
@@ -260,6 +366,13 @@ Projekt został zaprojektowany tak, aby można go było łatwo integrować z:
 - [ ] multi-company support
 
 ## Struktura batcha
+Batch stanowi trwały artefakt pipeline i może być ponownie używany
+bez angażowania API KSeF.
+i może być ponownie użyty do:
+- regeneracji PDF,
+- budowy index.html,
+- dalszego eksportu do JPK,
+- analizy/debugowania pipeline.
 Po wykonaniu pipeline powstają:
 ```
 data/batches/
@@ -284,21 +397,21 @@ data/batches/
 Uruchomienie testów:
 
 ```bash
-pytest
+uv run pytest
 ```
 
 Coverage:
 
 ```bash
-pytest --cov=ksef --cov-report=term-missing
+uv run pytest --cov=ksef --cov-report=term-missing
 ```
 
 ## Kontrola jakości
 
 ```bash
-ruff check .
-black .
-bandit -r ksef
+uv run ruff check .
+uv run black .
+uv run bandit -r ksef
 ```
 
 ## CI/CD

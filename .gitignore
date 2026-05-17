@@ -1,5 +1,5 @@
-```gitignore
 # Python
+.venv/
 venv/
 __pycache__/
 *.pyc
@@ -26,6 +26,7 @@ bandit_report.html
 # IDE
 .vscode/
 .idea/
-```
+
 node_modules/
-node_modules/
+ksef_sync.egg-info/
+ksef-sync_project_for_ai.txt
