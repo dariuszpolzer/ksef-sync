@@ -1,4 +1,5 @@
 ![Python](https://img.shields.io/badge/python-3.13-blue)
+![Quality](https://github.com/dariuszpolzer/ksef-sync/actions/workflows/quality.yml/badge.svg)
 ![Tests](https://img.shields.io/badge/tests-pytest-green)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
