@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from ksef.utils import ensure_dir, save_json
+from ksef.utils import ensure_dir, redact_secrets, save_json
 
 
 def test_ensure_dir_creates_directory(tmp_path: Path) -> None:
@@ -32,3 +32,34 @@ def test_save_json_writes_expected_data(tmp_path: Path) -> None:
 
     assert '"status": "ok"' in content
     assert '"count": 2' in content
+
+
+def test_redact_secrets_masks_nested_tokens_and_urls() -> None:
+    payload = {
+        "accessToken": {"token": "secret-token"},
+        "package": {
+            "parts": [
+                {
+                    "downloadUrl": "https://example.com/secret",
+                    "partNumber": 1,
+                }
+            ]
+        },
+    }
+
+    redacted = redact_secrets(payload)
+
+    assert redacted["accessToken"] == "***REDACTED***"
+    assert redacted["package"]["parts"][0]["downloadUrl"] == "***REDACTED***"
+    assert redacted["package"]["parts"][0]["partNumber"] == 1
+
+
+def test_save_json_can_redact_sensitive_values(tmp_path: Path) -> None:
+    target = tmp_path / "data.json"
+
+    save_json(target, {"authenticationToken": "secret"}, redact=True)
+
+    content = target.read_text(encoding="utf-8")
+
+    assert "secret" not in content
+    assert "***REDACTED***" in content

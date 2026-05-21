@@ -1,6 +1,9 @@
 import argparse
+import hashlib
 import json
+import logging
 import shutil
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -10,8 +13,11 @@ from ksef.build_index import build_batch_index
 from ksef.downloader import KSeFDownloader
 from ksef.export import KSeFExportClient
 from ksef.http_client import HttpClient
+from ksef.logging_config import configure_logging
 from ksef.pdf_generator import generate_invoice_pdfs
-from ksef.utils import ensure_dir, save_json
+from ksef.utils import ensure_dir, redact_secrets, save_json
+
+logger = logging.getLogger(__name__)
 
 
 def print_menu():
@@ -80,7 +86,7 @@ def run_auth_only():
 
     result = auth_client.authenticate()
     print("\nUwierzytelnienie OK")
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    print(json.dumps(redact_secrets(result), ensure_ascii=False, indent=2))
 
 
 def run_export_only(days_back: int):
@@ -103,7 +109,7 @@ def run_export_only(days_back: int):
     print(f"\nExport started: {export_ref}")
 
     export_status = export_client.wait_for_export(access_token, export_ref)
-    save_json(config.EXPORT_DIR / "03_export_status_final.json", export_status)
+    save_json(config.EXPORT_DIR / "03_export_status_final.json", export_status, redact=True)
 
     parts = export_client.extract_part_urls(export_status)
 
@@ -260,7 +266,7 @@ def run_full_sync(days_back: int, year: int | None = None, month: int | None = N
             "status": export_status,
         }
 
-        save_json(logs_dir / f"export_status_{export_key}.json", export_status)
+        save_json(logs_dir / f"export_status_{export_key}.json", export_status, redact=True)
 
         parts = export_client.extract_part_urls(export_status)
         invoice_count = export_status.get("package", {}).get("invoiceCount", 0)
@@ -376,6 +382,357 @@ def run_incremental_sync():
     sync_ksef_incremental.main()
 
 
+def _check_writable_dir(path: Path) -> bool:
+    ensure_dir(path)
+    probe = path / ".healthcheck"
+    probe.write_text("ok", encoding="utf-8")
+    probe.unlink()
+    return True
+
+
+def build_healthcheck_report() -> list[dict]:
+    checks = []
+
+    def add(name: str, ok: bool, detail: str = "") -> None:
+        checks.append({"name": name, "ok": ok, "detail": detail})
+
+    for env_name, value in (
+        ("KSEF_NIP", config.NIP),
+        ("KSEF_TOKEN", config.KSEF_TOKEN),
+        ("KSEF_PUBLIC_KEY_PATH", config.PUBLIC_KEY_PATH),
+        ("KSEF_SYMMETRIC_KEY_CERT_PATH", config.SYMMETRIC_KEY_CERT_PATH),
+    ):
+        add(env_name, bool(value), "set" if value else "missing")
+
+    for name, raw_path in (
+        ("KSEF_PUBLIC_KEY_PATH file", config.PUBLIC_KEY_PATH),
+        ("KSEF_SYMMETRIC_KEY_CERT_PATH file", config.SYMMETRIC_KEY_CERT_PATH),
+    ):
+        path = Path(raw_path)
+        add(name, path.exists(), str(path))
+
+    for name, path in (
+        ("KSEF_DATA_DIR writable", config.DATA_DIR),
+        ("KSEF_AUTH_DIR writable", config.AUTH_DIR),
+        ("KSEF_EXPORT_DIR writable", config.EXPORT_DIR),
+        ("KSEF_BATCH_DIR writable", config.BATCH_DIR),
+        ("KSEF_LOG_DIR writable", config.LOG_DIR),
+    ):
+        try:
+            _check_writable_dir(path)
+            add(name, True, str(path))
+        except Exception as exc:
+            add(name, False, f"{path}: {exc}")
+
+    add("Python", True, sys.version.split()[0])
+
+    uv_path = shutil.which("uv")
+    add("uv", bool(uv_path), uv_path or "not found in PATH")
+
+    node_path = shutil.which("node")
+    if config.GENERATE_PDF:
+        add("node", bool(node_path), node_path or "required when GENERATE_PDF=true")
+        pdf_generator_dir = Path(config.PDF_GENERATOR_DIR)
+        add("PDF generator dir", pdf_generator_dir.exists(), str(pdf_generator_dir))
+    else:
+        add("node", True, node_path or "not required because GENERATE_PDF=false")
+
+    return checks
+
+
+def run_healthcheck() -> bool:
+    checks = build_healthcheck_report()
+
+    print("\n=== KSEF-SYNC HEALTHCHECK ===")
+    for check in checks:
+        status = "OK" if check["ok"] else "FAIL"
+        print(f"[{status}] {check['name']}: {check['detail']}")
+
+    ok = all(check["ok"] for check in checks)
+    print("\nStatus:", "OK" if ok else "FAIL")
+    return ok
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def find_latest_batch_dir(batch_root: Path = config.BATCH_DIR) -> Path:
+    if not batch_root.exists():
+        raise FileNotFoundError(f"Batch root does not exist: {batch_root}")
+
+    batch_dirs = sorted([path for path in batch_root.iterdir() if path.is_dir()])
+    if not batch_dirs:
+        raise FileNotFoundError(f"No batch directories found in: {batch_root}")
+
+    return batch_dirs[-1]
+
+
+def resolve_batch_dir(batch_id: str | None) -> Path:
+    if batch_id:
+        batch_dir = config.BATCH_DIR / batch_id
+        if not batch_dir.exists():
+            raise FileNotFoundError(f"Batch does not exist: {batch_dir}")
+        return batch_dir
+
+    return find_latest_batch_dir()
+
+
+def build_batch_validation_report(batch_dir: Path) -> dict:
+    batch_dir = Path(batch_dir)
+    checks = []
+
+    def add(name: str, ok: bool, detail: str = "") -> None:
+        checks.append({"name": name, "ok": ok, "detail": detail})
+
+    manifest_path = batch_dir / "manifest.json"
+    add("manifest exists", manifest_path.exists(), str(manifest_path))
+
+    if not manifest_path.exists():
+        return {
+            "batch_dir": str(batch_dir),
+            "created_at": datetime.now(UTC).isoformat(),
+            "ok": False,
+            "checks": checks,
+            "files": [],
+        }
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    invoices_dir = batch_dir / manifest.get("storage", {}).get("invoices_dir", "invoices")
+    pdf_dir = batch_dir / "pdf"
+    index_path = batch_dir / "index.html"
+
+    manifest_invoices = manifest.get("invoices", [])
+    invoice_files = sorted(invoices_dir.glob("*.xml")) if invoices_dir.exists() else []
+
+    add("invoices dir exists", invoices_dir.exists(), str(invoices_dir))
+    add(
+        "invoice count matches manifest",
+        len(invoice_files) == manifest.get("batch", {}).get("invoice_count"),
+        f"files={len(invoice_files)} manifest={manifest.get('batch', {}).get('invoice_count')}",
+    )
+    add(
+        "invoice list matches manifest count",
+        len(manifest_invoices) == manifest.get("batch", {}).get("invoice_count"),
+        f"list={len(manifest_invoices)} manifest={manifest.get('batch', {}).get('invoice_count')}",
+    )
+
+    files = []
+    for invoice in manifest_invoices:
+        filename = invoice.get("filename", "")
+        xml_path = invoices_dir / filename
+        pdf_path = pdf_dir / f"{Path(filename).stem}.pdf"
+
+        xml_exists = xml_path.exists()
+        pdf_exists = pdf_path.exists()
+
+        add(f"xml exists: {filename}", xml_exists, str(xml_path))
+        add(f"pdf exists: {pdf_path.name}", pdf_exists, str(pdf_path))
+
+        files.append(
+            {
+                "filename": filename,
+                "xml_path": str(xml_path),
+                "xml_sha256": sha256_file(xml_path) if xml_exists else None,
+                "pdf_path": str(pdf_path),
+                "pdf_sha256": sha256_file(pdf_path) if pdf_exists else None,
+            }
+        )
+
+    add("index exists", index_path.exists(), str(index_path))
+
+    pdf_report = manifest.get("pdf")
+    if pdf_report:
+        add(
+            "pdf report has no errors",
+            pdf_report.get("error_count", 0) == 0,
+            f"errors={pdf_report.get('error_count', 0)}",
+        )
+        add(
+            "pdf count matches invoices",
+            len(list(pdf_dir.glob("*.pdf"))) == manifest.get("batch", {}).get("invoice_count"),
+            (
+                f"pdfs={len(list(pdf_dir.glob('*.pdf')))} "
+                f"invoices={manifest.get('batch', {}).get('invoice_count')}"
+            ),
+        )
+
+    ok = all(check["ok"] for check in checks)
+    return {
+        "batch_dir": str(batch_dir),
+        "created_at": datetime.now(UTC).isoformat(),
+        "ok": ok,
+        "checks": checks,
+        "files": files,
+    }
+
+
+def run_validate_batch(batch_id: str | None) -> bool:
+    batch_dir = resolve_batch_dir(batch_id)
+    report = build_batch_validation_report(batch_dir)
+    report_path = batch_dir / "validation_report.json"
+    save_json(report_path, report)
+
+    print("\n=== KSEF-SYNC BATCH VALIDATION ===")
+    print(f"Batch: {batch_dir}")
+    print(f"Report: {report_path}")
+
+    for check in report["checks"]:
+        status = "OK" if check["ok"] else "FAIL"
+        print(f"[{status}] {check['name']}: {check['detail']}")
+
+    print("\nStatus:", "OK" if report["ok"] else "FAIL")
+    return bool(report["ok"])
+
+
+def directory_size_bytes(path: Path) -> int:
+    total = 0
+    for item in path.rglob("*"):
+        if item.is_file():
+            total += item.stat().st_size
+    return total
+
+
+def format_size(size_bytes: int) -> str:
+    value = float(size_bytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if value < 1024 or unit == "GB":
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} GB"
+
+
+def load_batch_summary(batch_dir: Path) -> dict:
+    manifest_path = batch_dir / "manifest.json"
+    validation_path = batch_dir / "validation_report.json"
+    manifest = {}
+    validation = {}
+
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    if validation_path.exists():
+        validation = json.loads(validation_path.read_text(encoding="utf-8"))
+
+    batch_info = manifest.get("batch", {})
+    stat = batch_dir.stat()
+
+    return {
+        "batch_id": batch_dir.name,
+        "path": str(batch_dir),
+        "created_at": batch_info.get("created_at", ""),
+        "date_from": batch_info.get("date_from", ""),
+        "date_to": batch_info.get("date_to", ""),
+        "invoice_count": batch_info.get("invoice_count", ""),
+        "validated": validation.get("ok") if validation else "",
+        "size_bytes": directory_size_bytes(batch_dir),
+        "modified_at": datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(),
+    }
+
+
+def list_batch_summaries(batch_root: Path = config.BATCH_DIR) -> list[dict]:
+    if not batch_root.exists():
+        return []
+
+    return [
+        load_batch_summary(batch_dir)
+        for batch_dir in sorted([path for path in batch_root.iterdir() if path.is_dir()])
+    ]
+
+
+def run_list_batches() -> None:
+    summaries = list_batch_summaries()
+
+    print("\n=== KSEF-SYNC BATCHES ===")
+    if not summaries:
+        print(f"Brak batchy w: {config.BATCH_DIR}")
+        return
+
+    print(
+        f"{'batch_id':<18} {'invoices':>8} {'valid':>7} {'size':>10} "
+        f"{'date_from':<25} {'date_to':<25}"
+    )
+    print("-" * 95)
+
+    for summary in reversed(summaries):
+        validated = summary["validated"]
+        valid_text = "yes" if validated is True else "no" if validated is False else "unknown"
+        print(
+            f"{summary['batch_id']:<18} "
+            f"{str(summary['invoice_count']):>8} "
+            f"{valid_text:>7} "
+            f"{format_size(summary['size_bytes']):>10} "
+            f"{summary['date_from'][:25]:<25} "
+            f"{summary['date_to'][:25]:<25}"
+        )
+
+
+def batch_dirs_older_than(days: int, now: datetime | None = None) -> list[Path]:
+    if days < 0:
+        raise ValueError("--older-than-days musi być >= 0.")
+
+    if now is None:
+        now = datetime.now(UTC)
+
+    if not config.BATCH_DIR.exists():
+        return []
+
+    cutoff = now - timedelta(days=days)
+    candidates = []
+
+    for batch_dir in config.BATCH_DIR.iterdir():
+        if not batch_dir.is_dir():
+            continue
+
+        modified_at = datetime.fromtimestamp(batch_dir.stat().st_mtime, UTC)
+        if modified_at < cutoff:
+            candidates.append(batch_dir)
+
+    return sorted(candidates)
+
+
+def assert_safe_batch_delete_path(batch_dir: Path) -> None:
+    root = config.BATCH_DIR.resolve()
+    target = batch_dir.resolve()
+
+    if target == root or not target.is_relative_to(root):
+        raise ValueError(f"Niebezpieczna ścieżka do usunięcia: {target}")
+
+
+def run_cleanup_batches(older_than_days: int, execute: bool) -> None:
+    candidates = batch_dirs_older_than(older_than_days)
+
+    mode = "EXECUTE" if execute else "DRY RUN"
+    print("\n=== KSEF-SYNC BATCH CLEANUP ===")
+    print(f"Mode: {mode}")
+    print(f"Older than days: {older_than_days}")
+
+    if not candidates:
+        print("Brak batchy do usunięcia.")
+        return
+
+    total_size = sum(directory_size_bytes(path) for path in candidates)
+    print(f"Kandydaci: {len(candidates)}")
+    print(f"Rozmiar łączny: {format_size(total_size)}")
+
+    for batch_dir in candidates:
+        assert_safe_batch_delete_path(batch_dir)
+        print(f"- {batch_dir} ({format_size(directory_size_bytes(batch_dir))})")
+
+    if not execute:
+        print("\nTo był dry-run. Dodaj --execute, żeby usunąć wskazane katalogi.")
+        return
+
+    for batch_dir in candidates:
+        shutil.rmtree(batch_dir)
+
+    print("\nUsunięto wskazane katalogi batchy.")
+
+
 def format_period_label(year, month, date_from, date_to):
     if year is not None and month is not None:
         return f"Okres: {year}-{month:02d}"
@@ -383,19 +740,48 @@ def format_period_label(year, month, date_from, date_to):
     return f"Zakres: {date_from.date()} - {date_to.date()}"
 
 
+def validate_period(year: int | None, month: int | None) -> None:
+    if year is None and month is None:
+        return
+
+    if year is None or month is None:
+        raise ValueError("Podaj jednocześnie --year i --month albo nie podawaj żadnego z nich.")
+
+    if year < 2000 or year > 2100:
+        raise ValueError("--year musi być z zakresu 2000-2100.")
+
+    if month < 1 or month > 12:
+        raise ValueError("--month musi być z zakresu 1-12.")
+
+
 def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--year", type=int)
     parser.add_argument("--month", type=int)
+    parser.add_argument("--batch-id")
+    parser.add_argument("--older-than-days", type=int, default=90)
+    parser.add_argument("--execute", action="store_true")
     parser.add_argument(
         "--mode",
-        choices=["menu", "auth", "export", "full-sync", "incremental"],
+        choices=[
+            "menu",
+            "auth",
+            "export",
+            "full-sync",
+            "incremental",
+            "healthcheck",
+            "validate-batch",
+            "list-batches",
+            "cleanup",
+        ],
         default="menu",
     )
     parser.add_argument("--days-back", type=int, default=7)
 
     args = parser.parse_args()
+    log_file = configure_logging(config.LOG_DIR, args.mode)
+    validate_period(args.year, args.month)
 
     if args.year and args.month:
         year = args.year
@@ -412,6 +798,26 @@ def main():
 
     print(f"Okres: {year}-{month:02d}")
     print(f"Tryb: {args.mode}")
+    print(f"Log: {log_file}")
+    logger.info("Start mode=%s period=%s-%02d", args.mode, year, month)
+
+    if args.mode == "healthcheck":
+        if not run_healthcheck():
+            sys.exit(1)
+        return
+
+    if args.mode == "validate-batch":
+        if not run_validate_batch(args.batch_id):
+            sys.exit(1)
+        return
+
+    if args.mode == "list-batches":
+        run_list_batches()
+        return
+
+    if args.mode == "cleanup":
+        run_cleanup_batches(args.older_than_days, args.execute)
+        return
 
     if args.mode == "auth":
         config.validate_config()
@@ -479,4 +885,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        logging.exception("Błąd krytyczny")
+        print("\nBłąd krytyczny:")
+        print(str(exc))
+        sys.exit(1)

@@ -55,6 +55,7 @@ markers = [
 [tool.bandit]
 exclude_dirs = [
     "venv",
+    "tests",
     "tools",
     "pdf_generator",
     "data",

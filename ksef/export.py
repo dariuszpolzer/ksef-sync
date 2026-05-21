@@ -76,7 +76,7 @@ class KSeFExportClient:
 
         for attempt in range(1, max_attempts + 1):
             data = self.get_status(access_token, reference_number)
-            save_json(self.export_dir / "02_export_status.json", data)
+            save_json(self.export_dir / "02_export_status.json", data, redact=True)
 
             status = data.get("status", {})
             code = status.get("code")

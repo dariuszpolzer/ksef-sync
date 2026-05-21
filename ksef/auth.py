@@ -52,7 +52,7 @@ class KSeFAuthClient:
         }
         response = self.http.request("POST", url, json_body=body)
         data = response.json()
-        save_json(self.auth_dir / "02_auth_init.json", data)
+        save_json(self.auth_dir / "02_auth_init.json", data, redact=True)
         return data
 
     def get_auth_status(self, authentication_token: str, reference_number: str):
@@ -86,7 +86,7 @@ class KSeFAuthClient:
         headers = {"Authorization": f"Bearer {authentication_token}"}
         response = self.http.request("POST", url, headers=headers)
         data = response.json()
-        save_json(self.auth_dir / "04_redeem.json", data)
+        save_json(self.auth_dir / "04_redeem.json", data, redact=True)
         return data
 
     def authenticate(self):

@@ -1,4 +1,5 @@
 import json
+import logging
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -8,12 +9,14 @@ from ksef.auth import KSeFAuthClient
 from ksef.downloader import KSeFDownloader
 from ksef.export import KSeFExportClient
 from ksef.http_client import HttpClient
+from ksef.logging_config import configure_logging
 from ksef.pdf_generator import generate_invoice_pdfs
 from ksef.utils import ensure_dir, save_json
 
 STATE_FILE = config.DATA_DIR / "state.json"
 DEFAULT_DAYS_BACK = 7
 OVERLAP_MINUTES = 5
+logger = logging.getLogger(__name__)
 
 
 def utc_now():
@@ -138,6 +141,8 @@ def prepare_batch_for_jpk(
 
 def main():
     config.validate_config()
+    log_file = configure_logging(config.LOG_DIR, "incremental")
+    logger.info("Start incremental sync")
 
     ensure_dir(config.DATA_DIR)
     ensure_dir(config.AUTH_DIR)
@@ -151,6 +156,7 @@ def main():
     first_run = range_info["first_run"]
 
     print("Tryb przyrostowy KSeF")
+    print(f"Log: {log_file}")
     if first_run:
         print(f"Brak state.json — pobieram domyślnie ostatnie {DEFAULT_DAYS_BACK} dni.")
     else:
@@ -218,7 +224,7 @@ def main():
             "status": export_status,
         }
 
-        save_json(logs_dir / f"export_status_{export_key}.json", export_status)
+        save_json(logs_dir / f"export_status_{export_key}.json", export_status, redact=True)
 
         parts = export_client.extract_part_urls(export_status)
         invoice_count = export_status.get("package", {}).get("invoiceCount", 0)

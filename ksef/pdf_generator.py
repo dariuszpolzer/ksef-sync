@@ -1,6 +1,8 @@
 import subprocess  # nosec B404
 from pathlib import Path
 
+import config
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 RENDER_SCRIPT = BASE_DIR / "pdf_generator" / "render_invoice.mjs"
 
@@ -41,6 +43,7 @@ def generate_invoice_pdfs(batch_dir: Path) -> dict:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                timeout=config.PDF_TIMEOUT_SECONDS,
             )
 
             if result.returncode != 0:

@@ -1,6 +1,14 @@
 param(
     [int]$Year = 0,
     [int]$Month = 0,
+    [string]$RootDir = "",
+    [string]$KsefSyncDir = "",
+    [string]$Ksef2JpkDir = "",
+    [string]$TaxAppDir = "",
+    [string]$LogDir = "",
+    [string]$ReportRootDir = "",
+    [string]$BatchDir = "",
+    [switch]$SkipBatchValidation,
     [switch]$DryRun,
     [switch]$SkipSync,
     [switch]$SkipJpk,
@@ -27,17 +35,41 @@ if ($Month -lt 1 -or $Month -gt 12) {
 $period = "{0}-{1:00}" -f $Year, $Month
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 
-$root = "C:\Users\dpolz\Documents"
+$scriptDir = if ($PSScriptRoot) {
+    $PSScriptRoot
+}
+else {
+    Split-Path -Parent $MyInvocation.MyCommand.Path
+}
 
-$ksefSyncDir = "$root\ksef-sync"
-$ksef2jpkDir = "$root\ksef-jpk"
-$taxAppDir = "$root\tax-app"
+if ([string]::IsNullOrWhiteSpace($RootDir)) {
+    $RootDir = Split-Path -Parent $scriptDir
+}
 
-$logDir = "$root\logs"
-$reportDir = "$root\reports\$period\$timestamp"
-$logFile = "$logDir\monthly_${period}_${timestamp}.log"
+if ([string]::IsNullOrWhiteSpace($KsefSyncDir)) {
+    $KsefSyncDir = $scriptDir
+}
 
-New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+if ([string]::IsNullOrWhiteSpace($Ksef2JpkDir)) {
+    $Ksef2JpkDir = Join-Path $RootDir "ksef-jpk"
+}
+
+if ([string]::IsNullOrWhiteSpace($TaxAppDir)) {
+    $TaxAppDir = Join-Path $RootDir "tax-app"
+}
+
+if ([string]::IsNullOrWhiteSpace($LogDir)) {
+    $LogDir = Join-Path $RootDir "logs"
+}
+
+if ([string]::IsNullOrWhiteSpace($ReportRootDir)) {
+    $ReportRootDir = Join-Path $RootDir "reports"
+}
+
+$reportDir = Join-Path (Join-Path $ReportRootDir $period) $timestamp
+$logFile = Join-Path $LogDir "monthly_${period}_${timestamp}.log"
+
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
 
 function Write-Log {
@@ -67,6 +99,24 @@ function Assert-CommandExists {
     if (-not (Get-Command $CommandName -ErrorAction SilentlyContinue)) {
         throw ("Brak wymaganego polecenia w PATH: {0}" -f $CommandName)
     }
+}
+
+function Get-LatestBatchDir {
+    param(
+        [string]$BatchesRoot
+    )
+
+    Assert-PathExists -Path $BatchesRoot -Name "katalog batchy"
+
+    $latest = Get-ChildItem -Path $BatchesRoot -Directory |
+        Sort-Object -Property Name -Descending |
+        Select-Object -First 1
+
+    if ($null -eq $latest) {
+        throw ("Brak batchy w katalogu: {0}" -f $BatchesRoot)
+    }
+
+    return $latest.FullName
 }
 
 function Run-Step {
@@ -111,33 +161,43 @@ function Run-Step {
 
 Write-Host "=== ORCHESTRATOR ROZLICZENIA ==="
 Write-Host ("Okres: {0}" -f $period)
+Write-Host ("Root: {0}" -f $RootDir)
+Write-Host ("ksef-sync: {0}" -f $KsefSyncDir)
+Write-Host ("ksef-jpk: {0}" -f $Ksef2JpkDir)
+Write-Host ("tax-app: {0}" -f $TaxAppDir)
+Write-Host ("Batch: {0}" -f $(if ([string]::IsNullOrWhiteSpace($BatchDir)) { "<auto>" } else { $BatchDir }))
 Write-Host ("Log: {0}" -f $logFile)
 Write-Host ("Raporty: {0}" -f $reportDir)
 
 Write-Log "=== ORCHESTRATOR ROZLICZENIA ==="
 Write-Log ("Okres: {0}" -f $period)
 Write-Log ("Start: {0}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))
+Write-Log ("Root: {0}" -f $RootDir)
+Write-Log ("ksef-sync: {0}" -f $KsefSyncDir)
+Write-Log ("ksef-jpk: {0}" -f $Ksef2JpkDir)
+Write-Log ("tax-app: {0}" -f $TaxAppDir)
+Write-Log ("Batch: {0}" -f $(if ([string]::IsNullOrWhiteSpace($BatchDir)) { "<auto>" } else { $BatchDir }))
 Write-Log ("Raporty: {0}" -f $reportDir)
 
 try {
     Assert-CommandExists -CommandName "uv"
 
     if (-not $SkipSync) {
-        Assert-PathExists -Path $ksefSyncDir -Name "katalog ksef-sync"
+        Assert-PathExists -Path $KsefSyncDir -Name "katalog ksef-sync"
     }
 
     if (-not $SkipJpk) {
-        Assert-PathExists -Path $ksef2jpkDir -Name "katalog ksef-jpk"
+        Assert-PathExists -Path $Ksef2JpkDir -Name "katalog ksef-jpk"
     }
 
     if (-not $SkipTaxApp) {
-        Assert-PathExists -Path $taxAppDir -Name "katalog tax-app"
+        Assert-PathExists -Path $TaxAppDir -Name "katalog tax-app"
     }
 
     if (-not $SkipSync) {
         Run-Step `
             -Name "KSeF Sync" `
-            -WorkingDir $ksefSyncDir `
+            -WorkingDir $KsefSyncDir `
             -Command "uv run python main.py --mode full-sync --year $Year --month $Month"
     }
     else {
@@ -147,11 +207,32 @@ try {
         Write-Log "KSeF Sync: SKIPPED"
     }
 
+    if ([string]::IsNullOrWhiteSpace($BatchDir)) {
+        $BatchDir = Get-LatestBatchDir -BatchesRoot (Join-Path $KsefSyncDir "data\batches")
+    }
+
+    Write-Host ""
+    Write-Host ("Batch używany w kolejnych etapach: {0}" -f $BatchDir)
+    Write-Log ("Batch używany w kolejnych etapach: {0}" -f $BatchDir)
+
+    if (-not $SkipBatchValidation) {
+        Run-Step `
+            -Name "KSeF Batch Validation" `
+            -WorkingDir $KsefSyncDir `
+            -Command "uv run python main.py --mode validate-batch --batch-id `"$([System.IO.Path]::GetFileName($BatchDir))`""
+    }
+    else {
+        Write-Host ""
+        Write-Host "=== KSeF Batch Validation ==="
+        Write-Host "[SKIP] Pominięto walidację batcha."
+        Write-Log "KSeF Batch Validation: SKIPPED"
+    }
+
     if (-not $SkipJpk) {
         Run-Step `
             -Name "KSeF to JPK" `
-            -WorkingDir $ksef2jpkDir `
-            -Command "uv run python -m ksef2jpk.main --year $Year --month $Month"
+            -WorkingDir $Ksef2JpkDir `
+            -Command "uv run python -m ksef2jpk.main --year $Year --month $Month --batch-dir `"$BatchDir`""
     }
     else {
         Write-Host ""
@@ -163,7 +244,7 @@ try {
     if (-not $SkipTaxApp) {
         Run-Step `
             -Name "Tax App" `
-            -WorkingDir $taxAppDir `
+            -WorkingDir $TaxAppDir `
             -Command "uv run python main.py --year $Year --month $Month --out-dir `"$reportDir`""
     }
     else {

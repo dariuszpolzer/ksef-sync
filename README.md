@@ -27,6 +27,7 @@
 - [Typowe zastosowania](#typowe-zastosowania)
 - [Disclaimer](#disclaimer)
 - [CI/CD](#cicd)
+- [Production](#production)
 - [Licencja](#licencja)
 - [Autor](#autor)
 
@@ -152,17 +153,29 @@ dla każdego projektu, co zapewnia:
 ### Przykładowe uruchomienie
 
 ```powershell
-.\monthly-orchestrator.ps1 -Year 2026 -Month 4
+.\orchestrator.ps1 -Year 2026 -Month 4
 
 ```
 Dostępne przełączniki Orchestrator:
 
 ```powershell
+-RootDir
+-KsefSyncDir
+-Ksef2JpkDir
+-TaxAppDir
+-LogDir
+-ReportRootDir
+-BatchDir
+-SkipBatchValidation
 -DryRun
 -SkipSync
 -SkipJpk
 -SkipTaxApp
 ```
+Domyślnie `orchestrator.ps1` traktuje katalog skryptu jako katalog `ksef-sync`,
+a katalog nadrzędny jako root dla `ksef-jpk`, `tax-app`, `logs` i `reports`.
+Jeśli `-BatchDir` nie jest podany, skrypt wybiera najnowszy batch z `ksef-sync\data\batches`
+i przekazuje go do `ksef-jpk` przez `--batch-dir`.
 Orchestrator nie jest wymagany do działania `ksef-sync`, ale pokazuje docelowe miejsce projektu w kompletnym, lokalnym procesie rozliczeniowym.
 
 ## Instalacja Windows
@@ -410,16 +423,41 @@ uv run pytest --cov=ksef --cov-report=term-missing
 
 ```bash
 uv run ruff check .
-uv run black .
-uv run bandit -r ksef
+uv run black --check main.py config.py ksef tools tests
+uv run bandit -q -c pyproject.toml -r .
 ```
 
 ## CI/CD
+
+Kontrole jakości można uruchomić lokalnie:
+
+```powershell
+.\check.ps1
+```
+
+Repozytorium zawiera też workflow GitHub Actions w `.github/workflows/quality.yml`, który uruchamia testy, ruff, black oraz bandit.
 
 Projekt wykorzystuje GitHub Actions do:
 - uruchamiania testów,
 - lintingu,
 - kontroli jakości kodu.
+
+## Production
+
+Procedura uruchomień produkcyjnych, lista kontroli przed startem oraz obsługa błędów są opisane w [PRODUCTION.md](PRODUCTION.md).
+
+Po synchronizacji batch można sprawdzić lokalnie:
+
+```powershell
+uv run python main.py --mode validate-batch --batch-id <batch_id>
+```
+
+Batchami można zarządzać lokalnie:
+
+```powershell
+uv run python main.py --mode list-batches
+uv run python main.py --mode cleanup --older-than-days 90
+```
 
 ## Licencja
 
