@@ -423,7 +423,7 @@ uv run pytest --cov=ksef --cov-report=term-missing
 
 ```bash
 uv run ruff check .
-uv run black --check main.py config.py ksef tools tests
+uv run black --check main.py config.py ksef tests
 uv run bandit -q -c pyproject.toml -r .
 ```
 

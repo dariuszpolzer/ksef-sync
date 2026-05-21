@@ -24,7 +24,7 @@ $targets = @(
     "main.py",
     "config.py",
     "ksef",
-    "tools"
+    "tests"
 )
 
 $existingTargets = @()

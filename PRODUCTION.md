@@ -8,7 +8,7 @@ Uruchom z katalogu glownego repozytorium:
 uv sync --extra dev
 uv run python -m pytest
 uv run python -m ruff check .
-uv run python -m black --check main.py config.py ksef tools tests
+uv run python -m black --check main.py config.py ksef tests
 uv run python -m bandit -q -c pyproject.toml -r .
 ```
 

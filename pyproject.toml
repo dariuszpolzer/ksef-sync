@@ -56,7 +56,6 @@ markers = [
 exclude_dirs = [
     "venv",
     "tests",
-    "tools",
     "pdf_generator",
     "data",
     "node_modules",
@@ -71,7 +70,7 @@ skips = [
 ]
 
 [tool.setuptools]
-packages = ["ksef", "tools", "tools.ai_snapshot"]
+packages = ["ksef"]
 py-modules = ["config", "main"]
 
 [build-system]

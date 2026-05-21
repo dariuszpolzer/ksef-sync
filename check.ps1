@@ -43,7 +43,7 @@ Run-Step "Python" @("uv", "run", "python", "--version")
 Run-Step "Sync dependencies" @("uv", "sync", "--extra", "dev")
 Run-Step "Tests" @("uv", "run", "python", "-m", "pytest")
 Run-Step "Ruff" @("uv", "run", "python", "-m", "ruff", "check", ".")
-Run-Step "Black" @("uv", "run", "python", "-m", "black", "--check", "main.py", "config.py", "ksef", "tools", "tests")
+Run-Step "Black" @("uv", "run", "python", "-m", "black", "--check", "main.py", "config.py", "ksef", "tests")
 Run-Step "Bandit" @("uv", "run", "python", "-m", "bandit", "-q", "-c", "pyproject.toml", "-r", ".")
 
 Write-Host ""

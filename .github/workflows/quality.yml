@@ -31,7 +31,7 @@ jobs:
         run: uv run python -m ruff check .
 
       - name: Black
-        run: uv run python -m black --check main.py config.py ksef tools tests
+        run: uv run python -m black --check main.py config.py ksef tests
 
       - name: Bandit
         run: uv run python -m bandit -q -c pyproject.toml -r .
