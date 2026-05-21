@@ -438,6 +438,11 @@ Kontrole jakości można uruchomić lokalnie:
 
 Repozytorium zawiera też workflow GitHub Actions w `.github/workflows/quality.yml`, który uruchamia testy, ruff, black oraz bandit.
 
+Przed pushem sprawdź:
+- `.\check.ps1` kończy się statusem OK,
+- `git status` nie pokazuje danych wygenerowanych lub lokalnych,
+- w repo nie ma plików z `.env`, `data/`, `keys/`, `logs/`, `exports/` ani batchami roboczymi.
+
 Projekt wykorzystuje GitHub Actions do:
 - uruchamiania testów,
 - lintingu,
