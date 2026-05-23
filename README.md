@@ -52,7 +52,7 @@ Projekt rozwijany aktywnie.
 
 - Python 3.13 +
 - uv
-- Node.js 20+
+- Node.js 20.19+ albo 22.12+ oraz npm 10+
 - PowerShell 7+ (Windows recommended)
 - dostęp do środowiska KSeF
 
@@ -198,10 +198,21 @@ uv sync --extra dev
 Instalacja zależności Node.js:
 
 ```bash
-cd pdf_generator
-npm install
+cd pdf_generator/ksef-pdf-generator
+npm ci
 npm run build
 ```
+
+Jeśli po klonie instalacja npm kończy się błędem `EBADENGINE`, sprawdź wersje:
+
+```bash
+node --version
+npm --version
+```
+
+Generator PDF wymaga Node.js `20.19+` albo `22.12+`. Na Windows najprościej użyć
+aktualnego Node.js LTS albo Node `22.16+`. Nie kopiuj `node_modules` między
+komputerami; instaluj zależności z `package-lock.json` komendą `npm ci`.
 
 ## Instalacja na Linux
 
