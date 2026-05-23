@@ -199,7 +199,7 @@ Instalacja zależności Node.js:
 
 ```bash
 cd pdf_generator/ksef-pdf-generator
-npm ci
+npm install
 npm run build
 ```
 
@@ -212,7 +212,9 @@ npm --version
 
 Generator PDF wymaga Node.js `20.19+` albo `22.12+`. Na Windows najprościej użyć
 aktualnego Node.js LTS albo Node `22.16+`. Nie kopiuj `node_modules` między
-komputerami; instaluj zależności z `package-lock.json` komendą `npm ci`.
+komputerami. Generator PDF jest zewnętrznym submodułem; jeśli `npm ci` zgłasza,
+że `package.json` i `package-lock.json` nie są zsynchronizowane, użyj
+`npm install`, a potem `npm run build`.
 
 ## Instalacja na Linux
 
