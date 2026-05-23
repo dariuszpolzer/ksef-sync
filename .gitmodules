@@ -1,0 +1,3 @@
+[submodule "pdf_generator/ksef-pdf-generator"]
+	path = pdf_generator/ksef-pdf-generator
+	url = https://github.com/CIRFMF/ksef-pdf-generator.git
