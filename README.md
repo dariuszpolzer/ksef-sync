@@ -8,6 +8,8 @@
 
 - [Status projektu](#status-projektu)
 - [Funkcje](#funkcje)
+- [Wymagania](#wymagania)
+- [Instalacja narzędzi bazowych](#instalacja-narzędzi-bazowych)
 - [Pipeline](#pipeline)
 - [Architektura projektu](#architektura-projektu)
 - [Logika okresu JPK](#logika-okresu-jpk)
@@ -22,6 +24,8 @@
 - [Uwagi dotyczące obliczeń finansowych](#uwagi-dotyczące-obliczeń-finansowych)
 - [Znane ograniczenia](#znane-ograniczenia)
 - [Development](#development)
+- [Instalacja Windows](#instalacja-windows)
+- [Instalacja na Linux](#instalacja-na-linux)
 - [Quick start](#quick-start)
 - [Przykładowe uruchomienie](#przykładowe-uruchomienie)
 - [Przykładowy workflow](#przykładowy-workflow)
@@ -55,6 +59,81 @@ Projekt rozwijany aktywnie.
 - Node.js 20.19+ albo 22.12+ oraz npm 10+
 - PowerShell 7+ (Windows recommended)
 - dostęp do środowiska KSeF
+
+## Instalacja narzędzi bazowych
+
+Na nowym komputerze najczęściej brakuje dwóch rzeczy:
+
+- `uv` do obsługi środowiska Python,
+- aktualnego Node.js z `npm` do generatora PDF.
+
+Po instalacji każdego narzędzia zamknij i otwórz nowe okno PowerShell/terminala,
+żeby system odświeżył zmienną `PATH`.
+
+### Python i uv
+
+Projekt wymaga Pythona 3.13 albo nowszego. Sprawdź wersję:
+
+```powershell
+python --version
+```
+
+Jeśli Python nie jest zainstalowany albo komenda nie działa, zainstaluj go
+z <https://www.python.org/downloads/>. Na Windows podczas instalacji zaznacz
+opcję dodania Pythona do `PATH`.
+
+Instalacja `uv` na Windows:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Sprawdzenie instalacji:
+
+```powershell
+uv --version
+```
+
+Jeśli `uv` jest zainstalowane, ale PowerShell go nie widzi, otwórz nowe okno
+PowerShell. Jeżeli nadal nie działa, sprawdź czy katalog z `uv.exe` jest w `PATH`.
+Standardowo jest to zwykle:
+
+```text
+%USERPROFILE%\.local\bin
+```
+
+Na Linux/macOS instalacja `uv`:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv --version
+```
+
+### Node.js i npm
+
+Generator PDF wymaga Node.js `20.19+` albo `22.12+` oraz `npm 10+`.
+Najprościej zainstalować aktualną wersję LTS z <https://nodejs.org/>.
+
+Po instalacji sprawdź wersje:
+
+```powershell
+node --version
+npm --version
+```
+
+Przykładowe poprawne wersje:
+
+```text
+node v22.16.0
+npm 10.x
+```
+
+Jeśli `node` albo `npm` nie są rozpoznawane, otwórz nowe okno PowerShell.
+Jeśli problem zostaje, zainstaluj Node.js ponownie i upewnij się, że instalator
+dodaje Node.js do `PATH`.
+
+Nie kopiuj katalogu `node_modules` z innego komputera. Zależności Node trzeba
+zainstalować lokalnie na danej maszynie.
 
 ## Pipeline
 
@@ -182,30 +261,44 @@ Orchestrator nie jest wymagany do działania `ksef-sync`, ale pokazuje docelowe 
 ## Instalacja Windows
 
 ### Klonowanie repozytorium
-```bash
-git clone https://github.com/dpolz/ksef-sync.git
+```powershell
+git clone --recurse-submodules https://github.com/dpolz/ksef-sync.git
 cd ksef-sync
 ```
+
+Jeśli repozytorium zostało już sklonowane bez submodułów, doinstaluj generator PDF:
+
+```powershell
+git submodule update --init --recursive
+```
+
 ## Środowisko Python
 
 Projekt używa `uv`. Źródłem prawdy dla zależności jest `pyproject.toml`, a zablokowane wersje są w `uv.lock`.
 
-```bash
+```powershell
+uv --version
 uv sync --extra dev
 ```
+
+Ta komenda tworzy lokalne środowisko `.venv` i instaluje zależności projektu
+zgodnie z `uv.lock`. Nie trzeba ręcznie uruchamiać `python -m venv`.
+
 ### Generator PDF KSeF (Node.js)
 
 Instalacja zależności Node.js:
 
-```bash
+```powershell
 cd pdf_generator/ksef-pdf-generator
+npm --version
 npm install
 npm run build
+cd ../..
 ```
 
 Jeśli po klonie instalacja npm kończy się błędem `EBADENGINE`, sprawdź wersje:
 
-```bash
+```powershell
 node --version
 npm --version
 ```
@@ -220,14 +313,33 @@ komputerami. Generator PDF jest zewnętrznym submodułem; jeśli `npm ci` zgłas
 
 ### Klonowanie repozytorium
 ```bash
-git clone https://github.com/dpolz/ksef-sync.git
+git clone --recurse-submodules https://github.com/dpolz/ksef-sync.git
 cd ksef-sync
 ```
-Środowisko Python
+
+Jeśli repozytorium zostało już sklonowane bez submodułów:
 
 ```bash
+git submodule update --init --recursive
+```
+
+Środowisko Python:
+
+```bash
+uv --version
 uv sync --extra dev
 ```
+
+Generator PDF:
+
+```bash
+cd pdf_generator/ksef-pdf-generator
+npm --version
+npm install
+npm run build
+cd ../..
+```
+
 Uruchomienie
 ```bash
 uv run python main.py --mode full-sync --year 2026 --month 5
