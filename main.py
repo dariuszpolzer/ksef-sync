@@ -196,7 +196,7 @@ def prepare_batch_for_jpk(
     return manifest
 
 
-def run_full_sync(days_back: int, year: int | None = None, month: int | None = None):
+def run_full_sync(days_back: int, year: int | None = None, month: int | None = None) -> bool:
     ensure_dir(config.DATA_DIR)
     ensure_dir(config.AUTH_DIR)
     ensure_dir(config.EXPORT_DIR)
@@ -285,7 +285,7 @@ def run_full_sync(days_back: int, year: int | None = None, month: int | None = N
 
     if not all_parts:
         print("Brak części paczek w obu eksportach.")
-        return
+        return False
 
     print("4. Pobieranie, odszyfrowanie i rozpakowanie...")
     extracted_dirs = []
@@ -374,6 +374,8 @@ def run_full_sync(days_back: int, year: int | None = None, month: int | None = N
 
         index_file = build_batch_index(batch_dir)
         print(f"   Index HTML: {index_file}")
+
+    return True
 
 
 def run_incremental_sync():
@@ -754,9 +756,27 @@ def validate_period(year: int | None, month: int | None) -> None:
         raise ValueError("--month musi być z zakresu 1-12.")
 
 
-def main():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser()
 
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=[
+            "menu",
+            "auth",
+            "export",
+            "sync",
+            "incremental",
+            "validate",
+            "validate-batch",
+            "list-batches",
+            "cleanup",
+        ],
+        help=(
+            "Komenda. Nowe aliasy: validate=healthcheck, sync=full-sync. Stary --mode nadal działa."
+        ),
+    )
     parser.add_argument("--year", type=int)
     parser.add_argument("--month", type=int)
     parser.add_argument("--batch-id")
@@ -779,7 +799,22 @@ def main():
     )
     parser.add_argument("--days-back", type=int, default=7)
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+
+    if args.command:
+        if args.mode != "menu":
+            parser.error("Nie używaj jednocześnie komendy pozycyjnej i --mode.")
+        command_to_mode = {
+            "validate": "healthcheck",
+            "sync": "full-sync",
+        }
+        args.mode = command_to_mode.get(args.command, args.command)
+
+    return args
+
+
+def main(argv=None) -> int:
+    args = parse_args(argv)
     log_file = configure_logging(config.LOG_DIR, args.mode)
     validate_period(args.year, args.month)
 
@@ -803,45 +838,46 @@ def main():
 
     if args.mode == "healthcheck":
         if not run_healthcheck():
-            sys.exit(1)
-        return
+            return 1
+        return 0
 
     if args.mode == "validate-batch":
         if not run_validate_batch(args.batch_id):
-            sys.exit(1)
-        return
+            return 1
+        return 0
 
     if args.mode == "list-batches":
         run_list_batches()
-        return
+        return 0
 
     if args.mode == "cleanup":
         run_cleanup_batches(args.older_than_days, args.execute)
-        return
+        return 0
 
     if args.mode == "auth":
         config.validate_config()
         run_auth_only()
-        return
+        return 0
 
     if args.mode == "export":
         config.validate_config()
         run_export_only(args.days_back)
-        return
+        return 0
 
     if args.mode == "full-sync":
         config.validate_config()
-        run_full_sync(
+        if not run_full_sync(
             days_back=args.days_back,
             year=year,
             month=month,
-        )
-        return
+        ):
+            return 2
+        return 0
 
     if args.mode == "incremental":
         config.validate_config()
         run_incremental_sync()
-        return
+        return 0
 
     while True:
         print_menu()
@@ -874,7 +910,7 @@ def main():
 
             elif choice == "6":
                 print("Koniec.")
-                break
+                return 0
 
             else:
                 print("Nieznana opcja.")
@@ -886,7 +922,7 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        sys.exit(main())
     except Exception as exc:
         logging.exception("Błąd krytyczny")
         print("\nBłąd krytyczny:")

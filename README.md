@@ -342,7 +342,8 @@ cd ../..
 
 Uruchomienie
 ```bash
-uv run python main.py --mode full-sync --year 2026 --month 5
+uv run python main.py validate
+uv run python main.py sync --year 2026 --month 5
 ```
 ## Konfiguracja
 
@@ -386,7 +387,19 @@ i zapisuje stan synchronizacji w `data/state.json`.
 ### Synchronizacja pełna dla wybranego okresu
 
 ```bash
+uv run python main.py sync --year 2026 --month 5
+```
+
+Stary wariant z `--mode` nadal działa:
+
+```bash
 uv run python main.py --mode full-sync --year 2026 --month 5
+```
+
+Walidacja lokalnej konfiguracji i środowiska:
+
+```bash
+uv run python main.py validate
 ```
 
 ### Bezpośrednie uruchomienie modułu
@@ -580,14 +593,14 @@ Procedura uruchomień produkcyjnych, lista kontroli przed startem oraz obsługa 
 Po synchronizacji batch można sprawdzić lokalnie:
 
 ```powershell
-uv run python main.py --mode validate-batch --batch-id <batch_id>
+uv run python main.py validate-batch --batch-id <batch_id>
 ```
 
 Batchami można zarządzać lokalnie:
 
 ```powershell
-uv run python main.py --mode list-batches
-uv run python main.py --mode cleanup --older-than-days 90
+uv run python main.py list-batches
+uv run python main.py cleanup --older-than-days 90
 ```
 
 ## Licencja

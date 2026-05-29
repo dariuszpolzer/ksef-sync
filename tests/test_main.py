@@ -42,6 +42,30 @@ def test_validate_period_rejects_invalid_month():
         main.validate_period(year=2026, month=13)
 
 
+def test_parse_args_maps_validate_command_to_healthcheck():
+    args = main.parse_args(["validate"])
+
+    assert args.mode == "healthcheck"
+
+
+def test_parse_args_maps_sync_command_to_full_sync():
+    args = main.parse_args(["sync", "--year", "2026", "--month", "4"])
+
+    assert args.mode == "full-sync"
+    assert args.year == 2026
+    assert args.month == 4
+
+
+def test_main_returns_error_when_full_sync_has_no_parts(monkeypatch, tmp_path):
+    monkeypatch.setattr(main, "configure_logging", lambda log_dir, mode: tmp_path / "test.log")
+    monkeypatch.setattr(main.config, "validate_config", lambda: None)
+    monkeypatch.setattr(main, "run_full_sync", lambda days_back, year, month: False)
+
+    result = main.main(["sync", "--year", "2026", "--month", "4"])
+
+    assert result == 2
+
+
 def test_build_healthcheck_report_passes_for_minimal_local_config(tmp_path, monkeypatch):
     public_key = tmp_path / "public.pem"
     symmetric_key = tmp_path / "symmetric.pem"

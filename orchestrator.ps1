@@ -55,7 +55,7 @@ if ([string]::IsNullOrWhiteSpace($Ksef2JpkDir)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($TaxAppDir)) {
-    $TaxAppDir = Join-Path $RootDir "tax-app"
+    $TaxAppDir = Join-Path $RootDir "tax-app-public"
 }
 
 if ([string]::IsNullOrWhiteSpace($LogDir)) {
@@ -164,7 +164,7 @@ Write-Host ("Okres: {0}" -f $period)
 Write-Host ("Root: {0}" -f $RootDir)
 Write-Host ("ksef-sync: {0}" -f $KsefSyncDir)
 Write-Host ("ksef-jpk: {0}" -f $Ksef2JpkDir)
-Write-Host ("tax-app: {0}" -f $TaxAppDir)
+Write-Host ("tax-app-public: {0}" -f $TaxAppDir)
 Write-Host ("Batch: {0}" -f $(if ([string]::IsNullOrWhiteSpace($BatchDir)) { "<auto>" } else { $BatchDir }))
 Write-Host ("Log: {0}" -f $logFile)
 Write-Host ("Raporty: {0}" -f $reportDir)
@@ -175,7 +175,7 @@ Write-Log ("Start: {0}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))
 Write-Log ("Root: {0}" -f $RootDir)
 Write-Log ("ksef-sync: {0}" -f $KsefSyncDir)
 Write-Log ("ksef-jpk: {0}" -f $Ksef2JpkDir)
-Write-Log ("tax-app: {0}" -f $TaxAppDir)
+Write-Log ("tax-app-public: {0}" -f $TaxAppDir)
 Write-Log ("Batch: {0}" -f $(if ([string]::IsNullOrWhiteSpace($BatchDir)) { "<auto>" } else { $BatchDir }))
 Write-Log ("Raporty: {0}" -f $reportDir)
 
@@ -191,7 +191,7 @@ try {
     }
 
     if (-not $SkipTaxApp) {
-        Assert-PathExists -Path $TaxAppDir -Name "katalog tax-app"
+        Assert-PathExists -Path $TaxAppDir -Name "katalog tax-app-public"
     }
 
     if (-not $SkipSync) {
@@ -243,15 +243,15 @@ try {
 
     if (-not $SkipTaxApp) {
         Run-Step `
-            -Name "Tax App" `
+            -Name "Tax App Public" `
             -WorkingDir $TaxAppDir `
             -Command "uv run python main.py --year $Year --month $Month --out-dir `"$reportDir`""
     }
     else {
         Write-Host ""
-        Write-Host "=== Tax App ==="
-        Write-Host "[SKIP] Pominięto tax-app."
-        Write-Log "Tax App: SKIPPED"
+        Write-Host "=== Tax App Public ==="
+        Write-Host "[SKIP] Pominięto tax-app-public."
+        Write-Log "Tax App Public: SKIPPED"
     }
 
     Write-Log "Status: SUCCESS"
