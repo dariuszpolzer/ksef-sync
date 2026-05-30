@@ -8,6 +8,7 @@ dependencies = [
     "requests>=2.32,<2.34",
     "python-dotenv>=1.0",
     "cryptography>=45.0",
+    "defusedxml>=0.7",
     "pathspec>=0.12",
 ]
 

@@ -1,7 +1,7 @@
 import pytest
 import responses
 
-from ksef.http_client import HttpClient, KSeFHttpError
+from ksef.http_client import HttpClient, KSeFHttpError, parse_retry_after
 
 
 @responses.activate
@@ -87,3 +87,8 @@ def test_request_retries_429_and_then_succeeds(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert len(responses.calls) == 2
+    assert client.rate_limit_monitor.last_event["retry_after"] == "1"
+
+
+def test_parse_retry_after_uses_fallback_for_invalid_value() -> None:
+    assert parse_retry_after("not-a-date", 7) == 7

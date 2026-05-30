@@ -2,6 +2,7 @@ import base64
 from datetime import UTC, datetime
 
 from config import BASE_URL, EXPORT_POLL_INTERVAL, SYMMETRIC_KEY_CERT_PATH
+from ksef.contracts import validate_export_init, validate_export_status
 from ksef.export_crypto import KSeFExportCrypto
 from ksef.utils import save_json
 
@@ -46,7 +47,7 @@ class KSeFExportClient:
         }
 
         response = self.http.request("POST", url, headers=headers, json_body=body)
-        data = response.json()
+        data = validate_export_init(response.json())
 
         save_json(self.export_dir / f"01_export_start_{export_key}.json", data)
 
@@ -69,7 +70,7 @@ class KSeFExportClient:
         headers = {"Authorization": f"Bearer {access_token}"}
 
         response = self.http.request("GET", url, headers=headers)
-        return response.json()
+        return validate_export_status(response.json())
 
     def wait_for_export(self, access_token: str, reference_number: str, max_attempts=360):
         import time

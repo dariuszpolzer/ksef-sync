@@ -8,6 +8,12 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 
 from config import AUTH_POLL_INTERVAL, BASE_URL, KSEF_TOKEN, NIP, PUBLIC_KEY_PATH
+from ksef.contracts import (
+    validate_auth_challenge,
+    validate_auth_init,
+    validate_auth_status,
+    validate_redeem,
+)
 from ksef.http_client import HttpClient
 from ksef.utils import save_json
 
@@ -25,7 +31,7 @@ class KSeFAuthClient:
     def get_challenge(self):
         url = f"{BASE_URL}/auth/challenge"
         response = self.http.request("POST", url)
-        data = response.json()
+        data = validate_auth_challenge(response.json())
         save_json(self.auth_dir / "01_challenge.json", data)
         return data
 
@@ -51,7 +57,7 @@ class KSeFAuthClient:
             "encryptedToken": encrypted_token,
         }
         response = self.http.request("POST", url, json_body=body)
-        data = response.json()
+        data = validate_auth_init(response.json())
         save_json(self.auth_dir / "02_auth_init.json", data, redact=True)
         return data
 
@@ -59,7 +65,7 @@ class KSeFAuthClient:
         url = f"{BASE_URL}/auth/{reference_number}"
         headers = {"Authorization": f"Bearer {authentication_token}"}
         response = self.http.request("GET", url, headers=headers)
-        return response.json()
+        return validate_auth_status(response.json())
 
     def wait_for_auth(self, authentication_token: str, reference_number: str, max_attempts=90):
         for attempt in range(1, max_attempts + 1):
@@ -85,7 +91,7 @@ class KSeFAuthClient:
         url = f"{BASE_URL}/auth/token/redeem"
         headers = {"Authorization": f"Bearer {authentication_token}"}
         response = self.http.request("POST", url, headers=headers)
-        data = response.json()
+        data = validate_redeem(response.json())
         save_json(self.auth_dir / "04_redeem.json", data, redact=True)
         return data
 

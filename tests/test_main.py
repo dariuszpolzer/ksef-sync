@@ -59,7 +59,11 @@ def test_parse_args_maps_sync_command_to_full_sync():
 def test_main_returns_error_when_full_sync_has_no_parts(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "configure_logging", lambda log_dir, mode: tmp_path / "test.log")
     monkeypatch.setattr(main.config, "validate_config", lambda: None)
-    monkeypatch.setattr(main, "run_full_sync", lambda days_back, year, month: False)
+    monkeypatch.setattr(
+        main,
+        "run_full_sync",
+        lambda days_back, year, month, resume_batch_id=None: False,
+    )
 
     result = main.main(["sync", "--year", "2026", "--month", "4"])
 
@@ -135,7 +139,15 @@ def test_build_batch_validation_report_passes_for_complete_batch(tmp_path: Path)
     main.save_json(
         batch_dir / "manifest.json",
         {
-            "batch": {"invoice_count": 1},
+            "batch": {
+                "invoice_count": 1,
+                "ksef": {
+                    "system_version": "2.0",
+                    "api_version": "2.5.0",
+                    "environment": "prod",
+                    "base_url": "https://api.ksef.mf.gov.pl/v2",
+                },
+            },
             "storage": {"invoices_dir": "invoices"},
             "invoices": [{"filename": "invoice.xml"}],
             "pdf": {"error_count": 0},
@@ -159,7 +171,15 @@ def test_build_batch_validation_report_fails_when_pdf_missing(tmp_path: Path):
     main.save_json(
         batch_dir / "manifest.json",
         {
-            "batch": {"invoice_count": 1},
+            "batch": {
+                "invoice_count": 1,
+                "ksef": {
+                    "system_version": "2.0",
+                    "api_version": "2.5.0",
+                    "environment": "prod",
+                    "base_url": "https://api.ksef.mf.gov.pl/v2",
+                },
+            },
             "storage": {"invoices_dir": "invoices"},
             "invoices": [{"filename": "invoice.xml"}],
             "pdf": {"error_count": 0},
@@ -247,8 +267,21 @@ def test_prepare_batch_for_jpk_skips_duplicate_xml_names(tmp_path: Path):
     raw_one.mkdir()
     raw_two.mkdir()
 
-    (raw_one / "same.xml").write_text("<xml>first</xml>", encoding="utf-8")
-    (raw_two / "same.xml").write_text("<xml>second</xml>", encoding="utf-8")
+    invoice_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Faktura xmlns="http://crd.gov.pl/wzor/2025/06/25/13775/">
+  <Podmiot1><DaneIdentyfikacyjne><NIP>6791444505</NIP></DaneIdentyfikacyjne></Podmiot1>
+  <Podmiot2><DaneIdentyfikacyjne><NIP>1234567890</NIP></DaneIdentyfikacyjne></Podmiot2>
+  <Fa>
+    <P_1>2026-05-01</P_1>
+    <P_2>FV/1/2026</P_2>
+    <FaWiersz><P_7>Usluga</P_7><P_11>100</P_11><P_12>23</P_12></FaWiersz>
+  </Fa>
+</Faktura>
+"""
+    (raw_one / "same.xml").write_text(invoice_xml, encoding="utf-8")
+    (raw_two / "same.xml").write_text(
+        invoice_xml.replace("FV/1/2026", "FV/2/2026"), encoding="utf-8"
+    )
 
     manifest = main.prepare_batch_for_jpk(
         batch_dir=batch_dir,
@@ -260,7 +293,7 @@ def test_prepare_batch_for_jpk_skips_duplicate_xml_names(tmp_path: Path):
 
     copied = (batch_dir / "invoices" / "same.xml").read_text(encoding="utf-8")
 
-    assert copied == "<xml>first</xml>"
+    assert "FV/1/2026" in copied
     assert manifest["batch"]["invoice_count"] == 1
     assert manifest["batch"]["has_duplicates"] is True
     assert manifest["batch"]["duplicate_files"] == ["same.xml"]

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 
 import requests
 
@@ -11,9 +14,51 @@ class KSeFHttpError(Exception):
     pass
 
 
+@dataclass
+class RateLimitMonitor:
+    events: list[dict] = field(default_factory=list)
+
+    def record(self, response: requests.Response, wait_seconds: int | None = None) -> None:
+        headers = response.headers
+        event = {
+            "status_code": response.status_code,
+            "url": response.url,
+            "retry_after": headers.get("Retry-After"),
+            "wait_seconds": wait_seconds,
+            "limit": headers.get("X-RateLimit-Limit"),
+            "remaining": headers.get("X-RateLimit-Remaining"),
+            "reset": headers.get("X-RateLimit-Reset"),
+        }
+        self.events.append(event)
+
+    @property
+    def last_event(self) -> dict | None:
+        return self.events[-1] if self.events else None
+
+
+def parse_retry_after(value: str | None, fallback_seconds: int) -> int:
+    if not value:
+        return fallback_seconds
+
+    if value.isdigit():
+        return max(0, int(value))
+
+    try:
+        retry_at = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return fallback_seconds
+
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=UTC)
+
+    now = datetime.now(UTC)
+    return max(0, int((retry_at - now).total_seconds()))
+
+
 class HttpClient:
-    def __init__(self, timeout=HTTP_TIMEOUT):
+    def __init__(self, timeout=HTTP_TIMEOUT, rate_limit_monitor: RateLimitMonitor | None = None):
         self.timeout = timeout
+        self.rate_limit_monitor = rate_limit_monitor or RateLimitMonitor()
 
     def _error_text(self, response: requests.Response) -> str:
         try:
@@ -38,12 +83,11 @@ class HttpClient:
 
                 if response.status_code == 429:
                     retry_after = response.headers.get("Retry-After")
-                    wait_sec = (
-                        int(retry_after)
-                        if retry_after and retry_after.isdigit()
-                        else min(2**attempt, 30)
+                    wait_sec = parse_retry_after(retry_after, min(2**attempt, 30))
+                    self.rate_limit_monitor.record(response, wait_sec)
+                    print(
+                        f"[429] limit API - Retry-After={retry_after or 'brak'}, czekam {wait_sec}s"
                     )
-                    print(f"[429] limit API — czekam {wait_sec}s")
                     time.sleep(wait_sec)
                     continue
 

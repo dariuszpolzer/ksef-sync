@@ -9,6 +9,7 @@ from ksef.auth import KSeFAuthClient
 from ksef.downloader import KSeFDownloader
 from ksef.export import KSeFExportClient
 from ksef.http_client import HttpClient
+from ksef.invoice_xml import classify_ksef_invoice_xml
 from ksef.logging_config import configure_logging
 from ksef.pdf_generator import generate_invoice_pdfs
 from ksef.utils import ensure_dir, save_json
@@ -77,6 +78,7 @@ def prepare_batch_for_jpk(
     invoices = []
     seen = set()
     duplicate_files = []
+    skipped_files = []
 
     for raw_dir_txt in raw_dirs:
         raw_dir = Path(raw_dir_txt)
@@ -84,6 +86,17 @@ def prepare_batch_for_jpk(
         for xml_path in sorted(raw_dir.rglob("*.xml")):
             filename = xml_path.name
             nr_ksef = xml_path.stem
+
+            classification = classify_ksef_invoice_xml(xml_path)
+            if not classification["ok"]:
+                skipped_files.append(
+                    {
+                        "filename": filename,
+                        "source_path": str(xml_path),
+                        "reason": classification["reason"],
+                    }
+                )
+                continue
 
             if filename in seen:
                 duplicate_files.append(filename)
@@ -100,6 +113,7 @@ def prepare_batch_for_jpk(
                     "nr_ksef": nr_ksef,
                     "source_path": str(xml_path),
                     "target_path": str(target_path),
+                    "schema": classification["schema"],
                 }
             )
 
@@ -109,12 +123,15 @@ def prepare_batch_for_jpk(
         "batch": {
             "batch_id": batch_id,
             "source": "ksef_api_incremental",
+            "ksef": config.get_ksef_metadata(),
             "created_at": dt_to_iso_z(utc_now()),
             "date_from": dt_to_iso_z(date_from),
             "date_to": dt_to_iso_z(date_to),
             "invoice_count": len(invoices),
+            "skipped_invoice_count": len(skipped_files),
             "has_duplicates": bool(duplicate_files),
             "duplicate_files": duplicate_files,
+            "skipped_files_report": "logs/skipped_invoices.json",
             "exports": {
                 key: {
                     "subject_type": value["subject_type"],
@@ -135,6 +152,7 @@ def prepare_batch_for_jpk(
         "invoices": invoices,
     }
 
+    save_json(batch_dir / "logs" / "skipped_invoices.json", skipped_files)
     save_json(batch_dir / "manifest.json", manifest)
     return manifest
 

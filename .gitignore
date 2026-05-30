@@ -6,6 +6,12 @@ __pycache__/
 
 # Environment
 .env
+config.json
+ftp-sync.json
+*.xml
+*.csv
+*.xlsx
+*.xls
 
 # KSeF sensitive/runtime data
 keys/
@@ -14,6 +20,9 @@ batches/
 data/
 logs/
 exports/
+downloads/
+reports/
+JPK/
 
 # Build/cache
 dist/

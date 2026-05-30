@@ -1,4 +1,12 @@
 repos:
+  - repo: local
+    hooks:
+      - id: security-check
+        name: local security check
+        entry: uv run python tools/security_check.py --redact
+        language: system
+        pass_filenames: false
+
   - repo: https://github.com/psf/black
     rev: 25.1.0
     hooks:

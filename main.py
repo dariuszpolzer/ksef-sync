@@ -13,11 +13,13 @@ from ksef.build_index import build_batch_index
 from ksef.downloader import KSeFDownloader
 from ksef.export import KSeFExportClient
 from ksef.http_client import HttpClient
+from ksef.invoice_xml import classify_ksef_invoice_xml
 from ksef.logging_config import configure_logging
 from ksef.pdf_generator import generate_invoice_pdfs
 from ksef.utils import ensure_dir, redact_secrets, save_json
 
 logger = logging.getLogger(__name__)
+CURRENT_BATCH_DIR: Path | None = None
 
 
 def print_menu():
@@ -142,12 +144,24 @@ def prepare_batch_for_jpk(
     invoices = []
     duplicate_names = []
     seen = set()
+    skipped_files = []
 
     for raw_dir_txt in raw_dirs:
         raw_dir = Path(raw_dir_txt)
 
         for xml_path in sorted(raw_dir.rglob("*.xml")):
             filename = xml_path.name
+
+            classification = classify_ksef_invoice_xml(xml_path)
+            if not classification["ok"]:
+                skipped_files.append(
+                    {
+                        "filename": filename,
+                        "source_path": str(xml_path),
+                        "reason": classification["reason"],
+                    }
+                )
+                continue
 
             if filename in seen:
                 duplicate_names.append(filename)
@@ -166,6 +180,7 @@ def prepare_batch_for_jpk(
                     "nr_ksef": nr_ksef,
                     "source_path": str(xml_path),
                     "target_path": str(target_path),
+                    "schema": classification["schema"],
                 }
             )
 
@@ -175,12 +190,15 @@ def prepare_batch_for_jpk(
         "batch": {
             "batch_id": batch_id,
             "source": "ksef_api_export",
+            "ksef": config.get_ksef_metadata(),
             "created_at": datetime.now(UTC).isoformat(),
             "date_from": date_from.isoformat(),
             "date_to": date_to.isoformat(),
             "invoice_count": len(invoices),
+            "skipped_invoice_count": len(skipped_files),
             "has_duplicates": bool(duplicate_names),
             "duplicate_files": duplicate_names,
+            "skipped_files_report": "logs/skipped_invoices.json",
             "export_status_saved": "logs/03_export_status_final.json",
         },
         "storage": {
@@ -191,12 +209,81 @@ def prepare_batch_for_jpk(
         "invoices": invoices,
     }
 
+    save_json(batch_dir / "logs" / "skipped_invoices.json", skipped_files)
     save_json(batch_dir / "manifest.json", manifest)
 
     return manifest
 
 
-def run_full_sync(days_back: int, year: int | None = None, month: int | None = None) -> bool:
+def resolve_new_batch_dir(batch_id: str) -> tuple[str, Path]:
+    candidate_id = batch_id
+    candidate = config.BATCH_DIR / candidate_id
+    counter = 1
+
+    while candidate.exists():
+        candidate_id = f"{batch_id}_{counter:02d}"
+        candidate = config.BATCH_DIR / candidate_id
+        counter += 1
+
+    return candidate_id, candidate
+
+
+def save_batch_status(batch_dir: Path, status: str, detail: str = "") -> None:
+    save_json(
+        batch_dir / "status.json",
+        {
+            "status": status,
+            "detail": detail,
+            "updated_at": datetime.now(UTC).isoformat(),
+        },
+    )
+
+
+def build_download_validation_report(batch_dir: Path, manifest: dict) -> dict:
+    invoices_dir = batch_dir / manifest.get("storage", {}).get("invoices_dir", "invoices")
+    manifest_invoices = manifest.get("invoices", [])
+    invoice_files = sorted(invoices_dir.glob("*.xml")) if invoices_dir.exists() else []
+    skipped_report = batch_dir / manifest.get("batch", {}).get(
+        "skipped_files_report", "logs/skipped_invoices.json"
+    )
+
+    checks = [
+        {
+            "name": "invoices dir exists",
+            "ok": invoices_dir.exists(),
+            "detail": str(invoices_dir),
+        },
+        {
+            "name": "invoice count matches manifest",
+            "ok": len(invoice_files) == manifest.get("batch", {}).get("invoice_count"),
+            "detail": f"files={len(invoice_files)} manifest={manifest.get('batch', {}).get('invoice_count')}",
+        },
+        {
+            "name": "invoice list matches manifest count",
+            "ok": len(manifest_invoices) == manifest.get("batch", {}).get("invoice_count"),
+            "detail": f"list={len(manifest_invoices)} manifest={manifest.get('batch', {}).get('invoice_count')}",
+        },
+        {
+            "name": "skipped invoices report exists",
+            "ok": skipped_report.exists(),
+            "detail": str(skipped_report),
+        },
+    ]
+
+    return {
+        "batch_dir": str(batch_dir),
+        "created_at": datetime.now(UTC).isoformat(),
+        "ok": all(check["ok"] for check in checks),
+        "checks": checks,
+    }
+
+
+def run_full_sync(
+    days_back: int,
+    year: int | None = None,
+    month: int | None = None,
+    resume_batch_id: str | None = None,
+) -> bool:
     ensure_dir(config.DATA_DIR)
     ensure_dir(config.AUTH_DIR)
     ensure_dir(config.EXPORT_DIR)
@@ -223,14 +310,25 @@ def run_full_sync(days_back: int, year: int | None = None, month: int | None = N
         date_to = datetime.now(UTC)
         date_from = date_to - timedelta(days=days_back)
 
-    batch_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    batch_dir = config.BATCH_DIR / batch_id
+    if resume_batch_id:
+        batch_id = resume_batch_id
+        batch_dir = config.BATCH_DIR / batch_id
+    else:
+        batch_id, batch_dir = resolve_new_batch_dir(datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ"))
+
+    global CURRENT_BATCH_DIR
+    CURRENT_BATCH_DIR = batch_dir
+
     raw_dir = batch_dir / "raw"
     invoices_dir = batch_dir / "invoices"
     logs_dir = batch_dir / "logs"
 
     for d in (batch_dir, raw_dir, invoices_dir, logs_dir):
         ensure_dir(d)
+
+    save_batch_status(
+        batch_dir, "running", "sync started" if not resume_batch_id else "sync resumed"
+    )
 
     exports_to_run = [
         ("sales", "Subject1", "sprzedaż"),
@@ -285,6 +383,7 @@ def run_full_sync(days_back: int, year: int | None = None, month: int | None = N
 
     if not all_parts:
         print("Brak części paczek w obu eksportach.")
+        save_batch_status(batch_dir, "partial", "exports completed but no package parts found")
         return False
 
     print("4. Pobieranie, odszyfrowanie i rozpakowanie...")
@@ -304,11 +403,22 @@ def run_full_sync(days_back: int, year: int | None = None, month: int | None = N
         crypto_json = config.EXPORT_DIR / f"01a_export_crypto_local_{export_key}.json"
         aes_key, iv = downloader.load_crypto_material(crypto_json)
 
+        if extracted_dir.exists() and list(extracted_dir.rglob("*.xml")):
+            print(f"   {part['label']} / Part {part_number}: pomijam, już rozpakowano.")
+            extracted_dirs.append(str(extracted_dir))
+            continue
+
         print(f"   {part['label']} / Part {part_number}: pobieranie...")
-        downloader.download_file(package_url, encrypted_file)
+        if encrypted_file.exists():
+            print("   Plik zaszyfrowany już istnieje.")
+        else:
+            downloader.download_file(package_url, encrypted_file)
 
         print(f"   {part['label']} / Part {part_number}: odszyfrowanie...")
-        downloader.decrypt_aes_cbc_pkcs7(encrypted_file, decrypted_zip, aes_key, iv)
+        if decrypted_zip.exists():
+            print("   ZIP już istnieje.")
+        else:
+            downloader.decrypt_aes_cbc_pkcs7(encrypted_file, decrypted_zip, aes_key, iv)
 
         print(f"   {part['label']} / Part {part_number}: rozpakowanie...")
         downloader.extract_zip(decrypted_zip, extracted_dir)
@@ -333,6 +443,12 @@ def run_full_sync(days_back: int, year: int | None = None, month: int | None = N
             "purchase": export_statuses.get("purchase"),
         },
     )
+
+    download_validation = build_download_validation_report(batch_dir, manifest)
+    save_json(batch_dir / "download_validation_report.json", download_validation)
+    if not download_validation["ok"]:
+        save_batch_status(batch_dir, "partial", "download validation failed")
+        return False
 
     manifest["batch"]["exports"] = {
         key: {
@@ -375,6 +491,14 @@ def run_full_sync(days_back: int, year: int | None = None, month: int | None = N
         index_file = build_batch_index(batch_dir)
         print(f"   Index HTML: {index_file}")
 
+        final_validation = build_batch_validation_report(batch_dir)
+        save_json(batch_dir / "validation_report.json", final_validation)
+        if not final_validation["ok"]:
+            save_batch_status(batch_dir, "partial", "final validation failed")
+            return False
+
+    save_batch_status(batch_dir, "success", "sync completed")
+
     return True
 
 
@@ -399,12 +523,20 @@ def build_healthcheck_report() -> list[dict]:
         checks.append({"name": name, "ok": ok, "detail": detail})
 
     for env_name, value in (
+        ("KSEF_ENVIRONMENT", config.KSEF_ENVIRONMENT),
+        ("KSEF_API_VERSION", config.KSEF_API_VERSION),
         ("KSEF_NIP", config.NIP),
         ("KSEF_TOKEN", config.KSEF_TOKEN),
         ("KSEF_PUBLIC_KEY_PATH", config.PUBLIC_KEY_PATH),
         ("KSEF_SYMMETRIC_KEY_CERT_PATH", config.SYMMETRIC_KEY_CERT_PATH),
     ):
         add(env_name, bool(value), "set" if value else "missing")
+
+    try:
+        config.validate_environment_config()
+        add("KSEF environment config", True, config.BASE_URL)
+    except Exception as exc:
+        add("KSEF environment config", False, str(exc))
 
     for name, raw_path in (
         ("KSEF_PUBLIC_KEY_PATH file", config.PUBLIC_KEY_PATH),
@@ -522,6 +654,15 @@ def build_batch_validation_report(batch_dir: Path) -> dict:
         len(manifest_invoices) == manifest.get("batch", {}).get("invoice_count"),
         f"list={len(manifest_invoices)} manifest={manifest.get('batch', {}).get('invoice_count')}",
     )
+    ksef_metadata = manifest.get("batch", {}).get("ksef")
+    add("KSeF metadata exists", isinstance(ksef_metadata, dict), str(ksef_metadata or "missing"))
+    if isinstance(ksef_metadata, dict):
+        for field_name in ("system_version", "api_version", "environment", "base_url"):
+            add(
+                f"KSeF metadata {field_name}",
+                bool(ksef_metadata.get(field_name)),
+                str(ksef_metadata.get(field_name, "")),
+            )
 
     files = []
     for invoice in manifest_invoices:
@@ -798,6 +939,7 @@ def parse_args(argv=None):
         default="menu",
     )
     parser.add_argument("--days-back", type=int, default=7)
+    parser.add_argument("--resume-batch-id")
 
     args = parser.parse_args(argv)
 
@@ -866,11 +1008,19 @@ def main(argv=None) -> int:
 
     if args.mode == "full-sync":
         config.validate_config()
-        if not run_full_sync(
-            days_back=args.days_back,
-            year=year,
-            month=month,
-        ):
+        try:
+            sync_ok = run_full_sync(
+                days_back=args.days_back,
+                year=year,
+                month=month,
+                resume_batch_id=args.resume_batch_id,
+            )
+        except Exception as exc:
+            if CURRENT_BATCH_DIR is not None:
+                save_batch_status(CURRENT_BATCH_DIR, "partial", str(exc))
+            raise
+
+        if not sync_ok:
             return 2
         return 0
 
