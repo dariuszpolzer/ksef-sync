@@ -297,3 +297,9 @@ def test_prepare_batch_for_jpk_skips_duplicate_xml_names(tmp_path: Path):
     assert manifest["batch"]["invoice_count"] == 1
     assert manifest["batch"]["has_duplicates"] is True
     assert manifest["batch"]["duplicate_files"] == ["same.xml"]
+    assert manifest["schema_version"] == 1
+    assert manifest["tool"]["name"] == "ksef-sync"
+    assert manifest["period"]["label"] == "2026-05"
+    assert manifest["outputs"]["invoices_dir"] == str(batch_dir / "invoices")
+    assert manifest["status"] == "prepared"
+    assert manifest["hashes"]["invoice:same.xml"]["sha256"]

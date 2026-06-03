@@ -185,8 +185,42 @@ def prepare_batch_for_jpk(
             )
 
     invoices.sort(key=lambda x: x["filename"])
+    invoice_hashes = {
+        f"invoice:{invoice['filename']}": {
+            "path": invoice["target_path"],
+            "sha256": sha256_file(Path(invoice["target_path"])),
+        }
+        for invoice in invoices
+    }
 
     manifest = {
+        "schema_version": 1,
+        "tool": {
+            "name": "ksef-sync",
+            "command": "main.py sync",
+        },
+        "period": {
+            "date_from": date_from.isoformat(),
+            "date_to": date_to.isoformat(),
+            "label": f"{date_from:%Y-%m}",
+        },
+        "inputs": {
+            "raw_dirs": raw_dirs,
+            "export_status": export_status,
+        },
+        "outputs": {
+            "batch_dir": str(batch_dir),
+            "manifest": str(batch_dir / "manifest.json"),
+            "invoices_dir": str(invoices_dir),
+            "skipped_files_report": str(batch_dir / "logs" / "skipped_invoices.json"),
+        },
+        "checks": {
+            "invoice_count": len(invoices),
+            "skipped_invoice_count": len(skipped_files),
+            "duplicate_files": duplicate_names,
+        },
+        "hashes": invoice_hashes,
+        "status": "prepared",
         "batch": {
             "batch_id": batch_id,
             "source": "ksef_api_export",
