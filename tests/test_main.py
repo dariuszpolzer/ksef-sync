@@ -303,3 +303,31 @@ def test_prepare_batch_for_jpk_skips_duplicate_xml_names(tmp_path: Path):
     assert manifest["outputs"]["invoices_dir"] == str(batch_dir / "invoices")
     assert manifest["status"] == "prepared"
     assert manifest["hashes"]["invoice:same.xml"]["sha256"]
+
+
+def test_workflow_state_marks_and_loads_step(tmp_path: Path):
+    batch_dir = tmp_path / "batch"
+    batch_dir.mkdir()
+    state = main.load_workflow_state(batch_dir)
+
+    main.mark_workflow_step(
+        batch_dir,
+        state,
+        "exports_completed",
+        data={"all_parts": [{"part_number": 1}]},
+    )
+
+    loaded = main.load_workflow_state(batch_dir)
+
+    assert main.is_workflow_step_done(loaded, "exports_completed") is True
+    assert loaded["data"]["all_parts"] == [{"part_number": 1}]
+    assert loaded["steps"]["exports_completed"]["status"] == "done"
+
+
+def test_workflow_state_rejects_unknown_step(tmp_path: Path):
+    batch_dir = tmp_path / "batch"
+    batch_dir.mkdir()
+    state = main.load_workflow_state(batch_dir)
+
+    with pytest.raises(ValueError, match="Unknown workflow step"):
+        main.mark_workflow_step(batch_dir, state, "not_a_step")

@@ -21,6 +21,17 @@ from ksef.utils import ensure_dir, redact_secrets, save_json
 logger = logging.getLogger(__name__)
 CURRENT_BATCH_DIR: Path | None = None
 
+WORKFLOW_STEPS = [
+    "auth_done",
+    "exports_started",
+    "exports_completed",
+    "parts_downloaded",
+    "parts_decrypted",
+    "batch_prepared",
+    "pdf_done",
+    "validated",
+]
+
 
 def print_menu():
     print("\n=== TRYB MANUALNY / DIAGNOSTYCZNY ===")
@@ -273,6 +284,48 @@ def save_batch_status(batch_dir: Path, status: str, detail: str = "") -> None:
     )
 
 
+def load_workflow_state(batch_dir: Path) -> dict:
+    state_path = batch_dir / "workflow_state.json"
+    if not state_path.exists():
+        return {"schema_version": 1, "steps": {}, "data": {}}
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.setdefault("schema_version", 1)
+    state.setdefault("steps", {})
+    state.setdefault("data", {})
+    return state
+
+
+def save_workflow_state(batch_dir: Path, state: dict) -> None:
+    state["updated_at"] = datetime.now(UTC).isoformat()
+    save_json(batch_dir / "workflow_state.json", state)
+
+
+def mark_workflow_step(
+    batch_dir: Path,
+    state: dict,
+    step: str,
+    status: str = "done",
+    detail: str = "",
+    data: dict | None = None,
+) -> None:
+    if step not in WORKFLOW_STEPS:
+        raise ValueError(f"Unknown workflow step: {step}")
+
+    state.setdefault("steps", {})[step] = {
+        "status": status,
+        "detail": detail,
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    if data:
+        state.setdefault("data", {}).update(data)
+    save_workflow_state(batch_dir, state)
+
+
+def is_workflow_step_done(state: dict, step: str) -> bool:
+    return state.get("steps", {}).get(step, {}).get("status") == "done"
+
+
 def build_download_validation_report(batch_dir: Path, manifest: dict) -> dict:
     invoices_dir = batch_dir / manifest.get("storage", {}).get("invoices_dir", "invoices")
     manifest_invoices = manifest.get("invoices", [])
@@ -328,11 +381,6 @@ def run_full_sync(
     export_client = KSeFExportClient(http, config.EXPORT_DIR)
     downloader = KSeFDownloader(http, config.BATCH_DIR)
 
-    print("\n1. Uwierzytelnianie...")
-    auth_result = auth_client.authenticate()
-    access_token = auth_result["accessToken"]["token"]
-    print("   OK")
-
     if year and month:
         date_from = datetime(year, month, 1, tzinfo=UTC)
 
@@ -360,60 +408,81 @@ def run_full_sync(
     for d in (batch_dir, raw_dir, invoices_dir, logs_dir):
         ensure_dir(d)
 
+    workflow_state = load_workflow_state(batch_dir)
+
     save_batch_status(
         batch_dir, "running", "sync started" if not resume_batch_id else "sync resumed"
     )
+
+    print("\n1. Uwierzytelnianie...")
+    auth_result = auth_client.authenticate()
+    access_token = auth_result["accessToken"]["token"]
+    mark_workflow_step(batch_dir, workflow_state, "auth_done")
+    print("   OK")
 
     exports_to_run = [
         ("sales", "Subject1", "sprzedaż"),
         ("purchase", "Subject2", "zakup/koszty"),
     ]
 
-    all_parts = []
-    export_statuses = {}
+    all_parts = workflow_state.get("data", {}).get("all_parts", [])
+    export_statuses = workflow_state.get("data", {}).get("export_statuses", {})
 
-    print("2. Start eksportów...")
+    if is_workflow_step_done(workflow_state, "exports_completed") and all_parts:
+        print("2. Eksporty już zakończone, używam workflow_state.json.")
+    else:
+        all_parts = []
+        export_statuses = {}
+        print("2. Start eksportów...")
+        mark_workflow_step(batch_dir, workflow_state, "exports_started")
 
-    for export_key, subject_type, label in exports_to_run:
-        print(f"   Start eksportu: {label} ({subject_type})")
+        for export_key, subject_type, label in exports_to_run:
+            print(f"   Start eksportu: {label} ({subject_type})")
 
-        export_init = export_client.start_export(
-            access_token,
-            date_from,
-            date_to,
-            subject_type=subject_type,
-            export_key=export_key,
+            export_init = export_client.start_export(
+                access_token,
+                date_from,
+                date_to,
+                subject_type=subject_type,
+                export_key=export_key,
+            )
+
+            export_ref = export_init["referenceNumber"]
+            print(f"   Export reference [{label}]: {export_ref}")
+
+            print(f"3. Oczekiwanie na eksport: {label}...")
+            export_status = export_client.wait_for_export(access_token, export_ref)
+
+            export_statuses[export_key] = {
+                "subject_type": subject_type,
+                "label": label,
+                "reference_number": export_ref,
+                "status": export_status,
+            }
+
+            save_json(logs_dir / f"export_status_{export_key}.json", export_status, redact=True)
+
+            parts = export_client.extract_part_urls(export_status)
+            invoice_count = export_status.get("package", {}).get("invoiceCount", 0)
+
+            if not parts:
+                print(f"   Brak części paczki dla: {label}")
+                print(f"   Liczba faktur: {invoice_count}")
+                continue
+
+            for part in parts:
+                part["export_key"] = export_key
+                part["subject_type"] = subject_type
+                part["label"] = label
+                part["export_ref"] = export_ref
+                all_parts.append(part)
+
+        mark_workflow_step(
+            batch_dir,
+            workflow_state,
+            "exports_completed",
+            data={"export_statuses": export_statuses, "all_parts": all_parts},
         )
-
-        export_ref = export_init["referenceNumber"]
-        print(f"   Export reference [{label}]: {export_ref}")
-
-        print(f"3. Oczekiwanie na eksport: {label}...")
-        export_status = export_client.wait_for_export(access_token, export_ref)
-
-        export_statuses[export_key] = {
-            "subject_type": subject_type,
-            "label": label,
-            "reference_number": export_ref,
-            "status": export_status,
-        }
-
-        save_json(logs_dir / f"export_status_{export_key}.json", export_status, redact=True)
-
-        parts = export_client.extract_part_urls(export_status)
-        invoice_count = export_status.get("package", {}).get("invoiceCount", 0)
-
-        if not parts:
-            print(f"   Brak części paczki dla: {label}")
-            print(f"   Liczba faktur: {invoice_count}")
-            continue
-
-        for part in parts:
-            part["export_key"] = export_key
-            part["subject_type"] = subject_type
-            part["label"] = label
-            part["export_ref"] = export_ref
-            all_parts.append(part)
 
     if not all_parts:
         print("Brak części paczek w obu eksportach.")
@@ -459,6 +528,14 @@ def run_full_sync(
 
         extracted_dirs.append(str(extracted_dir))
 
+    mark_workflow_step(batch_dir, workflow_state, "parts_downloaded")
+    mark_workflow_step(
+        batch_dir,
+        workflow_state,
+        "parts_decrypted",
+        data={"extracted_dirs": extracted_dirs},
+    )
+
     print("\nGotowe.")
     print("Katalog batch:", batch_dir)
 
@@ -466,17 +543,30 @@ def run_full_sync(
         print("Rozpakowano:", d)
 
     print("\n5. Przygotowanie paczki dla ksef2jpk...")
-    manifest = prepare_batch_for_jpk(
-        batch_dir=batch_dir,
-        raw_dirs=extracted_dirs,
-        batch_id=batch_id,
-        date_from=date_from,
-        date_to=date_to,
-        export_status={
-            "sales": export_statuses.get("sales"),
-            "purchase": export_statuses.get("purchase"),
-        },
-    )
+    if (
+        is_workflow_step_done(workflow_state, "batch_prepared")
+        and (batch_dir / "manifest.json").exists()
+    ):
+        manifest = json.loads((batch_dir / "manifest.json").read_text(encoding="utf-8"))
+        print("   Paczka już przygotowana, używam istniejącego manifest.json.")
+    else:
+        manifest = prepare_batch_for_jpk(
+            batch_dir=batch_dir,
+            raw_dirs=extracted_dirs,
+            batch_id=batch_id,
+            date_from=date_from,
+            date_to=date_to,
+            export_status={
+                "sales": export_statuses.get("sales"),
+                "purchase": export_statuses.get("purchase"),
+            },
+        )
+        mark_workflow_step(
+            batch_dir,
+            workflow_state,
+            "batch_prepared",
+            data={"manifest_path": str(batch_dir / "manifest.json")},
+        )
 
     download_validation = build_download_validation_report(batch_dir, manifest)
     save_json(batch_dir / "download_validation_report.json", download_validation)
@@ -507,29 +597,54 @@ def run_full_sync(
     print(f"   Manifest: {batch_dir / 'manifest.json'}")
 
     if config.GENERATE_PDF:
-        print("\n6. Generowanie PDF faktur...")
-
-        pdf_report = generate_invoice_pdfs(batch_dir)
-
-        manifest["pdf"] = pdf_report
-        save_json(batch_dir / "manifest.json", manifest)
-
-        if year is not None and month is not None:
-            print(format_period_label(year, month, date_from, date_to))
+        if is_workflow_step_done(workflow_state, "pdf_done"):
+            print("\n6. PDF już oznaczone jako gotowe, pomijam generowanie.")
         else:
-            print(f"Zakres: {date_from.date()} - {date_to.date()}")
-        print(f"   PDF katalog: {pdf_report['pdf_dir']}")
-        print(f"   Wygenerowano PDF: {pdf_report['generated_count']}")
-        print(f"   Pominięto PDF: {pdf_report['skipped_count']}")
+            print("\n6. Generowanie PDF faktur...")
 
-        index_file = build_batch_index(batch_dir)
-        print(f"   Index HTML: {index_file}")
+            pdf_report = generate_invoice_pdfs(batch_dir)
 
-        final_validation = build_batch_validation_report(batch_dir)
-        save_json(batch_dir / "validation_report.json", final_validation)
-        if not final_validation["ok"]:
-            save_batch_status(batch_dir, "partial", "final validation failed")
-            return False
+            manifest["pdf"] = pdf_report
+            save_json(batch_dir / "manifest.json", manifest)
+            mark_workflow_step(
+                batch_dir,
+                workflow_state,
+                "pdf_done",
+                data={"pdf_report": pdf_report},
+            )
+
+            if year is not None and month is not None:
+                print(format_period_label(year, month, date_from, date_to))
+            else:
+                print(f"Zakres: {date_from.date()} - {date_to.date()}")
+            print(f"   PDF katalog: {pdf_report['pdf_dir']}")
+            print(f"   Wygenerowano PDF: {pdf_report['generated_count']}")
+            print(f"   Pominięto PDF: {pdf_report['skipped_count']}")
+
+        if is_workflow_step_done(workflow_state, "validated"):
+            print("   Walidacja końcowa już wykonana, pomijam.")
+        else:
+            index_file = build_batch_index(batch_dir)
+            print(f"   Index HTML: {index_file}")
+
+            final_validation = build_batch_validation_report(batch_dir)
+            save_json(batch_dir / "validation_report.json", final_validation)
+            if not final_validation["ok"]:
+                save_batch_status(batch_dir, "partial", "final validation failed")
+                return False
+            mark_workflow_step(
+                batch_dir,
+                workflow_state,
+                "validated",
+                data={"validation_report_path": str(batch_dir / "validation_report.json")},
+            )
+    else:
+        mark_workflow_step(
+            batch_dir, workflow_state, "pdf_done", status="skipped", detail="PDF disabled"
+        )
+        mark_workflow_step(
+            batch_dir, workflow_state, "validated", status="skipped", detail="PDF disabled"
+        )
 
     save_batch_status(batch_dir, "success", "sync completed")
 
