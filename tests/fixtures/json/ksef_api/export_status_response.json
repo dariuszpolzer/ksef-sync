@@ -1,0 +1,15 @@
+{
+  "status": {
+    "code": 200,
+    "description": "Completed"
+  },
+  "package": {
+    "invoiceCount": 2,
+    "parts": [
+      {
+        "partNumber": 1,
+        "url": "https://example.invalid/ksef/export/part-1.zip.aes"
+      }
+    ]
+  }
+}

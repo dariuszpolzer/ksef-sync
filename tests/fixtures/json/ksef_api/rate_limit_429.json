@@ -1,0 +1,12 @@
+{
+  "http_status": 429,
+  "headers": {
+    "Retry-After": "2"
+  },
+  "body": {
+    "status": {
+      "code": 429,
+      "description": "Too Many Requests"
+    }
+  }
+}

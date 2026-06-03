@@ -1,0 +1,10 @@
+{
+  "status": {
+    "code": 200,
+    "description": "Completed"
+  },
+  "package": {
+    "invoiceCount": 0,
+    "parts": []
+  }
+}

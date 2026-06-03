@@ -1,0 +1,8 @@
+{
+  "accessToken": {
+    "token": "ANONYMIZED_ACCESS_TOKEN"
+  },
+  "refreshToken": {
+    "token": "ANONYMIZED_REFRESH_TOKEN"
+  }
+}
