@@ -36,5 +36,8 @@ jobs:
       - name: Bandit
         run: uv run python -m bandit -q -c pyproject.toml -r .
 
+      - name: Runtime files check
+        run: uv run python tools/check_runtime_files.py
+
       - name: Security check
         run: uv run python tools/security_check.py --redact

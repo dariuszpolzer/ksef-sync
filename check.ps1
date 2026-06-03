@@ -45,6 +45,7 @@ Run-Step "Tests" @("uv", "run", "python", "-m", "pytest")
 Run-Step "Ruff" @("uv", "run", "python", "-m", "ruff", "check", ".")
 Run-Step "Black" @("uv", "run", "python", "-m", "black", "--check", "main.py", "config.py", "ksef", "tests")
 Run-Step "Bandit" @("uv", "run", "python", "-m", "bandit", "-q", "-c", "pyproject.toml", "-r", ".")
+Run-Step "Runtime files check" @("uv", "run", "python", "tools/check_runtime_files.py")
 Run-Step "Security check" @("uv", "run", "python", "tools/security_check.py", "--redact")
 
 Write-Host ""
